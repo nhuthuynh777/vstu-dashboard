@@ -53,7 +53,7 @@ with st.sidebar:
         if not st.session_state.get('_upload_auth'):
             c_pin, c_btn = st.columns([3, 1])
             with c_pin:
-                pin_input = st.text_input('', placeholder='Nhập PIN...', type='password',
+                pin_input = st.text_input('PIN', placeholder='Nhập PIN...', type='password',
                                           key='_upload_pin', label_visibility='collapsed')
             with c_btn:
                 if st.button('🔓', key='_upload_pin_btn', use_container_width=True):

@@ -7,25 +7,108 @@ import streamlit as st
 import plotly.graph_objects as go
 
 _INSIGHT_FILE = Path(__file__).parent / 'insight_notes.json'
+_DRIVE_INSIGHT_NAME = 'insights.json'
+
+
+def _drive_insight_file_id():
+    """Find insights.json in Drive folder. Cached in session state."""
+    cache_key = '_insight_file_id'
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        folder_id  = st.secrets.get('DRIVE_FOLDER_ID', '')
+        creds_info = dict(st.secrets.get('GOOGLE_SERVICE_ACCOUNT', {}))
+        if not folder_id or not creds_info:
+            return None
+        creds   = service_account.Credentials.from_service_account_info(
+            creds_info, scopes=['https://www.googleapis.com/auth/drive'])
+        svc     = build('drive', 'v3', credentials=creds)
+        results = svc.files().list(
+            q=f"'{folder_id}' in parents and name='{_DRIVE_INSIGHT_NAME}' and trashed=false",
+            fields='files(id)',
+        ).execute()
+        files = results.get('files', [])
+        fid   = files[0]['id'] if files else None
+        st.session_state[cache_key] = fid
+        return fid
+    except Exception:
+        return None
+
+
+def _load_insights_drive():
+    fid = _drive_insight_file_id()
+    if not fid:
+        return None
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
+        creds_info = dict(st.secrets.get('GOOGLE_SERVICE_ACCOUNT', {}))
+        creds = service_account.Credentials.from_service_account_info(
+            creds_info, scopes=['https://www.googleapis.com/auth/drive'])
+        svc = build('drive', 'v3', credentials=creds)
+        buf = io.BytesIO()
+        dl  = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        return json.loads(buf.getvalue().decode('utf-8'))
+    except Exception:
+        return None
+
+
+def _save_insights_drive(data):
+    fid = _drive_insight_file_id()
+    if not fid:
+        return False
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseUpload
+        creds_info = dict(st.secrets.get('GOOGLE_SERVICE_ACCOUNT', {}))
+        creds = service_account.Credentials.from_service_account_info(
+            creds_info, scopes=['https://www.googleapis.com/auth/drive'])
+        svc   = build('drive', 'v3', credentials=creds)
+        content = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+        media   = MediaIoBaseUpload(io.BytesIO(content), mimetype='application/json')
+        svc.files().update(fileId=fid, media_body=media).execute()
+        # Refresh cached insights in session
+        st.session_state['_insights_cache'] = data
+        return True
+    except Exception:
+        return False
 
 
 def _load_insights():
-    try:
-        return json.loads(_INSIGHT_FILE.read_text(encoding='utf-8'))
-    except Exception:
-        return {}
+    # Session cache → Drive → local file
+    if '_insights_cache' not in st.session_state:
+        drive_data = _load_insights_drive()
+        st.session_state['_insights_cache'] = drive_data if drive_data is not None else {}
+        if drive_data is None:
+            try:
+                st.session_state['_insights_cache'] = json.loads(
+                    _INSIGHT_FILE.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+    return st.session_state.get('_insights_cache', {})
 
 
 def _save_insight(tab_key, text):
     data = _load_insights()
     data[tab_key] = text
-    _INSIGHT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    st.session_state['_insights_cache'] = data
+    if not _save_insights_drive(data):
+        _INSIGHT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def _delete_insight(tab_key):
     data = _load_insights()
     data.pop(tab_key, None)
-    _INSIGHT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    st.session_state['_insights_cache'] = data
+    if not _save_insights_drive(data):
+        _INSIGHT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
 def _get_pin():
@@ -456,10 +539,12 @@ def date_range_banner(dr):
 
 def editable_insight(tab_key, auto_text, color='accent'):
     """
-    Insight panel có thể chỉnh sửa với PIN protection.
-    auto_text: plain text (newlines ok) — mặc định auto-generated.
-    Text tùy chỉnh lưu trong insight_notes.json, override auto khi tồn tại.
+    Insight panel có thể chỉnh sửa. Key = {report_name}::{tab_key} để
+    mỗi kỳ báo cáo lưu insight riêng. Lưu vào Drive insights.json (vĩnh viễn).
     """
+    # Prefix key by current report name → separate insight per period
+    report_name = st.session_state.get('_data_name', '')
+    tab_key     = f"{report_name}::{tab_key}" if report_name else tab_key
     dot_c = C.get(color, C['accent'])
     cfg = {
         'accent': ('#C9A96E', 'rgba(201,169,110,.10)'),

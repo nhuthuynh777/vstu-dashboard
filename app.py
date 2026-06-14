@@ -1,6 +1,6 @@
 """VSTu Paid Media Dashboard"""
 import streamlit as st
-from helpers import CSS, _get_pin, drive_list_files, drive_download_by_id, drive_upload_named
+from helpers import CSS, _get_pin, drive_is_configured, drive_list_files, drive_download_by_id, drive_upload_named
 from parse_data import parse_all
 
 st.set_page_config(
@@ -27,27 +27,42 @@ with st.sidebar:
     data_bytes    = None
     selected_name = None
 
-    # 1. Drive file list (nếu đã config secrets)
-    drive_files = drive_list_files()
+    drive_configured = drive_is_configured()
+    drive_files      = drive_list_files()  # sorted createdTime desc
 
+    # Auto-load most recent file from Drive when session is fresh (F5 / new visitor)
+    if drive_files and '_data_bytes' not in st.session_state:
+        latest = drive_files[0]
+        with st.spinner("Đang tải kỳ báo cáo mới nhất..."):
+            _auto = drive_download_by_id(latest['id'])
+            if _auto:
+                st.session_state['_data_bytes'] = _auto
+                st.session_state['_data_name']  = latest['name']
+
+    # 1. Dropdown chọn kỳ (chỉ hiện khi có file trên Drive)
     if drive_files:
-        file_names    = [f['name'] for f in drive_files]
+        file_names = [f['name'] for f in drive_files]
         st.markdown('<div style="font-size:11px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Kỳ báo cáo</div>', unsafe_allow_html=True)
-        selected_name = st.selectbox("Kỳ báo cáo", file_names, key='drive_select', label_visibility='collapsed')
+        current_name  = st.session_state.get('_data_name', file_names[0])
+        default_idx   = file_names.index(current_name) if current_name in file_names else 0
+        selected_name = st.selectbox("Kỳ báo cáo", file_names, index=default_idx,
+                                     key='drive_select', label_visibility='collapsed')
         selected_id   = next(f['id'] for f in drive_files if f['name'] == selected_name)
-        if st.button("Load từ Drive", use_container_width=True, key='btn_load'):
+
+        # Load khi user chọn kỳ khác
+        if selected_name != st.session_state.get('_data_name'):
             with st.spinner("Đang tải..."):
-                data_bytes = drive_download_by_id(selected_id)
-                st.session_state['_data_bytes'] = data_bytes
-                st.session_state['_data_name']  = selected_name
-                st.cache_data.clear()
-        elif '_data_bytes' in st.session_state:
-            data_bytes    = st.session_state['_data_bytes']
-            selected_name = st.session_state.get('_data_name', '')
-    else:
-        if '_data_bytes' in st.session_state:
-            data_bytes    = st.session_state['_data_bytes']
-            selected_name = st.session_state.get('_data_name', '')
+                _bytes = drive_download_by_id(selected_id)
+                if _bytes:
+                    st.session_state['_data_bytes'] = _bytes
+                    st.session_state['_data_name']  = selected_name
+                    st.cache_data.clear()
+                    st.rerun()
+
+    # Lấy data từ session
+    if '_data_bytes' in st.session_state:
+        data_bytes    = st.session_state['_data_bytes']
+        selected_name = st.session_state.get('_data_name', selected_name or '')
 
     # 2. Upload trực tiếp — PIN protected
     st.markdown('<hr style="border:none;border-top:0.5px solid rgba(0,0,0,0.08);margin:16px 0">', unsafe_allow_html=True)
@@ -75,7 +90,7 @@ with st.sidebar:
             st.session_state['_data_bytes'] = raw
             st.session_state['_data_name']  = uploaded.name
             st.cache_data.clear()
-            if drive_files:
+            if drive_configured:
                 with st.spinner("Lưu lên Drive..."):
                     drive_upload_named(raw, uploaded.name)
 

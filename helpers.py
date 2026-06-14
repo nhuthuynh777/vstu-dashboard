@@ -619,6 +619,16 @@ def mini_bar_cell(pct, color=None, max_pct=100):
     )
 
 
+def drive_is_configured():
+    """Returns True if Drive secrets are present (regardless of file count)."""
+    try:
+        folder_id = st.secrets.get('DRIVE_FOLDER_ID', '')
+        creds_info = dict(st.secrets.get('GOOGLE_SERVICE_ACCOUNT', {}))
+        return bool(folder_id and creds_info)
+    except Exception:
+        return False
+
+
 def drive_list_files():
     """List all xlsx files in Drive folder. Returns list of {id, name}."""
     try:

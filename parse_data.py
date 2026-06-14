@@ -115,9 +115,14 @@ def _detect_sheets(wb):
                     roles['fb_current'] = sname
             continue
 
-        # TikTok GMV Max: has "gross revenue" + "sku orders" or "spu", but NOT ad-level columns
-        if ('gross revenue' in flat and ('sku' in flat or 'spu' in flat)
-                and 'ad name' not in flat and 'amount spent' not in flat):
+        # TikTok GMV Max: name-based ("gmv" + "tiktok") OR content-based
+        sname_lower = sname.lower()
+        is_gmvmax = (
+            ('gmv' in sname_lower and 'tiktok' in sname_lower) or
+            ('gross revenue' in flat and ('sku' in flat or 'spu' in flat)
+             and 'ad name' not in flat and 'amount spent' not in flat)
+        )
+        if is_gmvmax:
             if roles['tiktok_gmvmax'] is None:
                 roles['tiktok_gmvmax'] = sname
             continue

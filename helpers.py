@@ -636,7 +636,7 @@ def drive_list_files():
         mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         results = service.files().list(
             q=f"'{folder_id}' in parents and mimeType='{mime}' and trashed=false",
-            orderBy='name desc',
+            orderBy='createdTime desc',
             fields='files(id,name)',
         ).execute()
         return results.get('files', [])

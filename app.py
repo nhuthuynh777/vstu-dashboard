@@ -30,6 +30,9 @@ with st.sidebar:
     drive_configured = drive_is_configured()
     drive_files      = drive_list_files()  # sorted createdTime desc
 
+    if drive_configured and not drive_files:
+        st.warning("⚠️ Drive configured nhưng không tìm thấy file — kiểm tra folder đã share với service account chưa.", icon="⚠️")
+
     # Auto-load most recent file from Drive when session is fresh (F5 / new visitor)
     if drive_files and '_data_bytes' not in st.session_state:
         latest = drive_files[0]

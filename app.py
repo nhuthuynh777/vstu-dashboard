@@ -144,6 +144,15 @@ if timeline:
         unsafe_allow_html=True,
     )
 
+# ── Sheet debug (sidebar) ─────────────────────────────────────────────────────
+with st.sidebar:
+    with st.expander("🔍 Sheet detection", expanded=False):
+        roles = data.get('_roles', {})
+        sheets = data.get('_sheets', [])
+        st.caption(f"All sheets: {sheets}")
+        for k, v in roles.items():
+            st.caption(f"{k} → {v or '(none)'}")
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 t1, t2, t3, t4, t5, t6 = st.tabs([
     "Overview", "Branding", "FB Conversion",

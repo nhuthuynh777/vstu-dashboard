@@ -115,9 +115,9 @@ def _detect_sheets(wb):
                     roles['fb_current'] = sname
             continue
 
-        # TikTok GMV Max: has "spu name" or ("gross revenue" + "purchases") — shop sales sheet
-        if (('spu name' in flat or 'spu id' in flat) or
-                ('gross revenue' in flat and 'purchases' in flat and 'ad name' not in flat)):
+        # TikTok GMV Max: has "gross revenue" + "sku orders" or "spu", but NOT ad-level columns
+        if ('gross revenue' in flat and ('sku' in flat or 'spu' in flat)
+                and 'ad name' not in flat and 'amount spent' not in flat):
             if roles['tiktok_gmvmax'] is None:
                 roles['tiktok_gmvmax'] = sname
             continue
@@ -435,17 +435,18 @@ def _parse_tiktok_sheet(wb, sheet_name):
 
 
 def _parse_tiktok_gmvmax_sheet(wb, sheet_name):
-    """Parse TikTok Shop Sales (GMV Max / SPU-level) sheet."""
+    """Parse TikTok GMV Max sheet. Supports campaign-level and SPU-level formats."""
     if not sheet_name or sheet_name not in wb.sheetnames:
         return pd.DataFrame()
 
     ws = wb[sheet_name]
     rows = list(ws.iter_rows(values_only=True))
 
+    # Find header row: needs revenue + orders/sku columns
     header_idx = None
     for i, row in enumerate(rows[:10]):
         flat = ' '.join(str(v).lower() for v in row if v)
-        if ('spu' in flat or 'product' in flat) and ('purchases' in flat or 'revenue' in flat):
+        if 'gross revenue' in flat and ('sku' in flat or 'spu' in flat or 'purchases' in flat):
             header_idx = i
             break
     if header_idx is None:
@@ -458,41 +459,60 @@ def _parse_tiktok_gmvmax_sheet(wb, sheet_name):
     df = pd.DataFrame(data, columns=raw_headers)
 
     col_map = {}
+    mapped = set()
     for col in df.columns:
         cl = col.lower().strip()
-        if 'account name' in cl:                                    col_map[col] = 'Account'
-        elif 'campaign name' in cl:                                 col_map[col] = 'Campaign'
-        elif 'spu name' in cl or ('product name' in cl):           col_map[col] = 'Product'
-        elif 'spu id' in cl:                                        col_map[col] = 'SPU_ID'
-        elif 'brand' in cl:                                         col_map[col] = 'Brand'
-        elif 'purchases (shop)' in cl or cl == 'purchases':        col_map[col] = 'Purchases'
-        elif 'gross revenue' in cl:                                 col_map[col] = 'GMV_THB'
-        elif 'average order value' in cl or 'aov' in cl:           col_map[col] = 'AOV_THB'
-        elif 'items purchased' in cl:                               col_map[col] = 'Items'
+        if 'campaign name' in cl and 'campaign' not in mapped:
+            col_map[col] = 'Campaign';   mapped.add('campaign')
+        elif ('spu name' in cl or 'product name' in cl) and 'product' not in mapped:
+            col_map[col] = 'Product';    mapped.add('product')
+        elif 'spu id' in cl and 'spuid' not in mapped:
+            col_map[col] = 'SPU_ID';    mapped.add('spuid')
+        elif 'brand' in cl and 'brand' not in mapped:
+            col_map[col] = 'Brand';      mapped.add('brand')
+        elif ('by day' in cl or cl == 'date') and 'date' not in mapped:
+            col_map[col] = 'Date';       mapped.add('date')
+        elif ('sku orders' in cl or 'purchases' in cl) and 'purchases' not in mapped:
+            col_map[col] = 'Purchases';  mapped.add('purchases')
+        elif 'gross revenue' in cl and 'gmv' not in mapped:
+            col_map[col] = 'GMV_THB';   mapped.add('gmv')
+        elif ('cost per order' in cl or 'average order value' in cl) and 'aov' not in mapped:
+            col_map[col] = 'AOV_THB';   mapped.add('aov')
+        elif 'roi' in cl and 'protection' not in cl and 'roas' not in mapped:
+            col_map[col] = 'ROAS';       mapped.add('roas')
+        elif cl == 'cost' and 'spend' not in mapped:
+            col_map[col] = 'Spend_THB';  mapped.add('spend')
 
     df = df.rename(columns=col_map)
 
-    for col in ['Purchases', 'GMV_THB', 'AOV_THB', 'Items']:
+    for col in ['Purchases', 'GMV_THB', 'AOV_THB', 'ROAS', 'Spend_THB']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            s = df[col]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
+            df[col] = pd.to_numeric(s, errors='coerce').fillna(0)
 
     # THB → VNĐ
-    if 'GMV_THB' in df.columns:
-        df['GMV_VND'] = df['GMV_THB'] * THB_TO_VND
-    if 'AOV_THB' in df.columns:
-        df['AOV_VND'] = df['AOV_THB'] * THB_TO_VND
+    if 'GMV_THB'   in df.columns: df['GMV_VND']   = df['GMV_THB']   * THB_TO_VND
+    if 'AOV_THB'   in df.columns: df['AOV_VND']   = df['AOV_THB']   * THB_TO_VND
+    if 'Spend_THB' in df.columns: df['Spend_VND']  = df['Spend_THB'] * THB_TO_VND
 
+    # If no Product column, use Campaign as label
     if 'Product' not in df.columns:
-        df['Product'] = 'Unknown'
+        df['Product'] = df.get('Campaign', pd.Series('Unknown', index=df.index))
     if 'Campaign' not in df.columns:
         df['Campaign'] = ''
     if 'Brand' not in df.columns:
-        df['Brand'] = df['Product'].apply(extract_brand) if 'Product' in df.columns else ''
+        df['Brand'] = df['Campaign'].apply(extract_brand)
 
-    # Filter summary rows
-    if 'Product' in df.columns:
-        df = df[~df['Product'].astype(str).str.match(r'^Total of \d+')]
+    # Filter total/summary rows
+    for col in ['Campaign', 'Product']:
+        if col in df.columns:
+            df = df[~df[col].astype(str).str.match(r'^Total of \d+')]
 
+    # Remove fully empty rows (no campaign name and no spend)
+    if 'Campaign' in df.columns:
+        df = df[df['Campaign'].astype(str).str.strip().ne('')]
     return df
 
 

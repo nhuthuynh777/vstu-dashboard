@@ -211,23 +211,26 @@ def _render_gmvmax(df, has_gmvmax):
         </div>""", unsafe_allow_html=True)
         return
 
-    total_gmv  = df['GMV_VND'].sum()   if 'GMV_VND'   in df.columns else 0
-    total_pur  = df['Purchases'].sum() if 'Purchases'  in df.columns else 0
-    total_items= df['Items'].sum()     if 'Items'      in df.columns else 0
-    aov        = total_gmv / total_pur if total_pur > 0 else 0
+    total_spend = df['Spend_VND'].sum()  if 'Spend_VND' in df.columns else 0
+    total_gmv   = df['GMV_VND'].sum()   if 'GMV_VND'   in df.columns else 0
+    total_pur   = df['Purchases'].sum() if 'Purchases'  in df.columns else 0
+    total_items = df['Items'].sum()     if 'Items'      in df.columns else 0
+    aov         = total_gmv / total_pur if total_pur > 0 else 0
+    roi         = total_gmv / total_spend if total_spend > 0 else 0
 
     st.markdown(
         '<div style="font-size:11px;color:#9CA3AF;margin-bottom:12px;">'
-        '💱 Gross Revenue & AOV đã quy đổi: 1 THB = 830 VNĐ</div>',
+        '💱 Cost & Gross Revenue đã quy đổi: 1 THB = 830 VNĐ</div>',
         unsafe_allow_html=True,
     )
 
     kpi_grid(
-        kpi_html('Total GMV',    fmt_vnd(total_gmv),   '—', 'accent'),
+        kpi_html('Total Spend',  fmt_vnd(total_spend),  '—', 'accent'),
+        kpi_html('Total GMV',    fmt_vnd(total_gmv),    '—', 'green'),
+        kpi_html('ROI',          f'{roi:.2f}x',         '—', 'yellow'),
         kpi_html('Purchases',    fmt_num(total_pur),    '—', 'blue'),
-        kpi_html('Items Sold',   fmt_num(total_items),  '—', 'purple'),
-        kpi_html('AOV',          fmt_vnd(aov),          '—', 'yellow'),
-        cols=4,
+        kpi_html('AOV',          fmt_vnd(aov),          '—', 'purple'),
+        cols=5,
     )
 
     st.markdown("---")
@@ -254,14 +257,27 @@ def _render_gmvmax(df, has_gmvmax):
     # By Campaign
     if 'Campaign' in df.columns and df['Campaign'].str.strip().ne('').any():
         st.markdown("---")
-        section('GMV by Campaign', 'blue')
+        section('Performance by Campaign', 'blue')
+        agg_cols = {'GMV_VND': ('GMV_VND', 'sum'), 'Purchases': ('Purchases', 'sum')}
+        if 'Spend_VND' in df.columns:
+            agg_cols['Spend_VND'] = ('Spend_VND', 'sum')
         by_camp = (df.groupby('Campaign', as_index=False)
-                   .agg(GMV_VND=('GMV_VND', 'sum'), Purchases=('Purchases', 'sum'))
-                   .sort_values('GMV_VND', ascending=False))
-        headers = ['Campaign', 'GMV', 'Purchases']
-        aligns  = ['left', 'right', 'right']
-        rows = [[str(r['Campaign'])[:50], fmt_vnd(r['GMV_VND']), fmt_num(r['Purchases'])]
-                for _, r in by_camp.iterrows()]
+                   .agg(**agg_cols)
+                   .sort_values('Spend_VND' if 'Spend_VND' in df.columns else 'GMV_VND', ascending=False))
+        has_spend = 'Spend_VND' in by_camp.columns
+        headers = ['Campaign', 'Spend', 'GMV', 'ROI', 'Purchases'] if has_spend else ['Campaign', 'GMV', 'Purchases']
+        aligns  = ['left', 'right', 'right', 'right', 'right'] if has_spend else ['left', 'right', 'right']
+        rows = []
+        for _, r in by_camp.iterrows():
+            spend = r.get('Spend_VND', 0)
+            gmv   = r.get('GMV_VND', 0)
+            roi   = gmv / spend if spend > 0 else 0
+            row   = [str(r['Campaign'])[:50]]
+            if has_spend:
+                row += [fmt_vnd(spend), fmt_vnd(gmv), f'{roi:.2f}x', fmt_num(r['Purchases'])]
+            else:
+                row += [fmt_vnd(gmv), fmt_num(r['Purchases'])]
+            rows.append(row)
         html_table(headers, rows, aligns)
 
     # By Brand (if multiple)

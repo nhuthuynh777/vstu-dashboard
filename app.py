@@ -147,11 +147,21 @@ if timeline:
 # ── Sheet debug (sidebar) ─────────────────────────────────────────────────────
 with st.sidebar:
     with st.expander("🔍 Sheet detection", expanded=False):
-        roles = data.get('_roles', {})
-        sheets = data.get('_sheets', [])
+        import openpyxl as _oxl
+        from io import BytesIO as _BIO
+        roles    = data.get('_roles', {})
+        sheets   = data.get('_sheets', [])
+        assigned = set(v for v in roles.values() if v)
         st.caption(f"All sheets: {sheets}")
         for k, v in roles.items():
             st.caption(f"{k} → {v or '(none)'}")
+        st.caption("── Unassigned (first row headers) ──")
+        _wb = _oxl.load_workbook(_BIO(st.session_state.get('_data_bytes', b'')), data_only=True)
+        for sn in sheets:
+            if sn not in assigned:
+                _ws  = _wb[sn]
+                row1 = [str(c.value) for c in next(_ws.iter_rows(max_row=1)) if c.value]
+                st.caption(f"{sn!r}: {row1[:6]}")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 t1, t2, t3, t4, t5, t6 = st.tabs([

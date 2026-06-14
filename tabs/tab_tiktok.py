@@ -104,32 +104,37 @@ def render(data):
             'CAOSTU': C['accent'],  'FNOS': C['blue'],
         }
 
-        section('Top 10 — Video Views', 'purple')
+        # Determine primary video metric column
+        vv_col   = ('Views6s'    if 'Views6s'    in df_raw.columns and df_raw['Views6s'].sum()    > 0
+                    else 'VideoViews' if 'VideoViews' in df_raw.columns and df_raw['VideoViews'].sum() > 0
+                    else None)
+        vv_label = '6s Views' if vv_col == 'Views6s' else ('Video Views' if vv_col else None)
 
-        sort_col = 'VideoViews' if 'VideoViews' in df_raw.columns else 'Impressions'
-        sum_cols = {c: 'sum'   for c in ['VideoViews', 'Impressions', 'Clicks', 'Spend', 'Reach'] if c in df_raw.columns}
+        section(f'Top 10 — {vv_label or "Impressions"}', 'purple')
+
+        sum_cols = {c: 'sum' for c in ['Views6s', 'VideoViews', 'Impressions', 'Clicks', 'Spend', 'Reach', 'VVR'] if c in df_raw.columns}
         agg = df_raw.groupby('Ad Name').agg({
             **sum_cols,
-            **{c: 'first' for c in ['Brand', 'Format', 'Camp Type'] if c in df_raw.columns},
+            **{c: 'first' for c in ['Brand', 'Format', 'Camp Type', 'Campaign'] if c in df_raw.columns},
         }).reset_index()
 
-        if 'VideoViews' in agg.columns and 'Impressions' in agg.columns:
-            agg['VVR'] = agg.apply(
-                lambda r: r['VideoViews'] / r['Impressions'] * 100
-                if r['Impressions'] > 0 else 0, axis=1
+        # Compute VVR per ad if not pre-computed
+        if vv_col and 'Impressions' in agg.columns:
+            agg['VVR_pct'] = agg.apply(
+                lambda r: r[vv_col] / r['Impressions'] * 100 if r['Impressions'] > 0 else 0, axis=1
             )
-        if 'Clicks' in agg.columns and 'Impressions' in agg.columns:
-            agg['CTR'] = agg.apply(
-                lambda r: r['Clicks'] / r['Impressions'] * 100
-                if r['Impressions'] > 0 else 0, axis=1
-            )
+        else:
+            agg['VVR_pct'] = agg.get('VVR', 0) * 100 if 'VVR' in agg.columns else 0
 
-        top_df = agg.sort_values(sort_col, ascending=False).head(10)
+        sort_col = vv_col or 'Impressions'
+        top_df   = agg.sort_values(sort_col, ascending=False).head(10)
 
-        has_vv = 'VideoViews' in top_df.columns
-        headers = ['#', 'Ad Name', 'Brand', 'Format',
-                   'Video Views' if has_vv else 'Impressions',
-                   'VVR' if has_vv else 'CTR', 'CTR', 'Spend']
+        has_clicks = 'Clicks' in top_df.columns and top_df['Clicks'].sum() > 0
+        col5_hdr   = vv_label or 'Impressions'
+        col6_hdr   = 'VVR'
+        col7_hdr   = 'CTR' if has_clicks else 'Imp'
+
+        headers = ['#', 'Ad Name', 'Brand', 'Format', col5_hdr, col6_hdr, col7_hdr, 'Spend']
         aligns  = ['center', 'left', 'left', 'center', 'right', 'right', 'right', 'right']
         rows = []
         for i, (_, row) in enumerate(top_df.iterrows(), 1):
@@ -137,14 +142,16 @@ def render(data):
             bc    = BRAND_COLORS.get(brand, C['blue'])
             name  = str(row.get('Ad Name', ''))
             short = f'<span title="{name}">{name[:52]}…</span>' if len(name) > 52 else name
-            vv_val = fmt_num(row.get('VideoViews', 0)) if has_vv else fmt_num(row.get('Impressions', 0))
-            vvr    = f"{row.get('VVR', 0):.1f}%" if has_vv else f"{row.get('CTR', 0):.2f}%"
+            vv_val = fmt_num(row.get(vv_col, 0)) if vv_col else fmt_num(row.get('Impressions', 0))
+            vvr    = f"{row.get('VVR_pct', 0):.1f}%"
+            col7   = (f"{row.get('Clicks',0)/row.get('Impressions',1)*100:.2f}%"
+                      if has_clicks and row.get('Impressions', 0) > 0
+                      else fmt_num(row.get('Impressions', 0)))
+            camp   = str(row.get('Format', row.get('Camp Type', row.get('Campaign', '—'))))
             rows.append([
                 str(i), short,
                 f'<span style="color:{bc};font-weight:500;font-size:11px">{brand}</span>',
-                str(row.get('Format', row.get('Camp Type', '—'))),
-                vv_val, vvr,
-                f"{row.get('CTR', 0):.2f}%",
+                camp[:30], vv_val, vvr, col7,
                 fmt_vnd(row.get('Spend', 0)),
             ])
         html_table(headers, rows, aligns)

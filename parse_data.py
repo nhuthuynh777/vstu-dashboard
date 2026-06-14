@@ -169,18 +169,6 @@ def parse_media_plan(wb, sheet_name):
             break
 
     if header_row is not None:
-        channel_map = {
-            'reach':               'IG Reach',
-            'engagement':          'IG Engagement',
-            'profile visit':       'FB Profile Visit',
-            'catalog sale':        'FB Catalog Sale',
-            'dymanic retargeting': 'FB Retargeting',
-            'dynamic retargeting': 'FB Retargeting',
-            'gmv max':             'Shopee GMV Max',
-            'shopee':              'Shopee GMV Max',
-            'tiktok':              'TikTok',
-        }
-
         # Detect columns from BOTH header row and sub-header row (row below)
         hdr = [str(v).lower().strip() if v else '' for v in rows[header_row]]
         sub = [str(v).lower().strip() if v else ''
@@ -199,10 +187,30 @@ def parse_media_plan(wb, sheet_name):
         gmv_col    = _find_col(['gmv'], 22)
         pdp_col    = _find_col(['pdp/atc', 'pdp'], 21)
 
-        # Scan all rows below header until 3 consecutive empty rows.
-        # Only check col 1 (channel) + col 2 (format) to avoid matching
-        # keywords inside long "Targeting Audience" description text.
-        # Skip rows where col 2 is None — these are section headers / totals.
+        def _label_from_channel_format(ch, fmt):
+            """Determine plan channel label by CHANNEL name first, then format."""
+            if 'shopee' in ch:
+                return 'Shopee GMV Max'
+            if 'tiktok' in ch:
+                return 'TikTok'
+            if 'instagram' in ch or ch.strip() == 'ig':
+                if 'reach'      in fmt: return 'IG Reach'
+                if 'engagement' in fmt: return 'IG Engagement'
+            if 'facebook' in ch or ch.strip() == 'fb':
+                if 'profile visit'  in fmt: return 'FB Profile Visit'
+                if 'catalog'        in fmt: return 'FB Catalog Sale'
+                if 'retargeting'    in fmt or 'dymanic' in fmt: return 'FB Retargeting'
+            # No channel name on row — infer from format only (sub-rows)
+            if not ch:
+                if 'engagement'  in fmt: return 'IG Engagement'
+                if 'profile visit' in fmt: return 'FB Profile Visit'
+                if 'retargeting' in fmt or 'dymanic' in fmt: return 'FB Retargeting'
+                if 'video'       in fmt: return 'TikTok'
+            return None
+
+        # Track current channel across rows (some rows have no channel name,
+        # inheriting from the last non-empty channel cell above them).
+        current_channel = ''
         consecutive_empty = 0
         for row in rows[header_row + 1:]:
             if not any(v for v in row):
@@ -212,35 +220,39 @@ def parse_media_plan(wb, sheet_name):
                 continue
             consecutive_empty = 0
 
+            # Update channel context whenever col 1 has a value
+            if len(row) > 1 and row[1]:
+                current_channel = str(row[1]).lower().replace('\n', ' ').strip()
+
             # Skip section header / total rows (no format in col 2)
             if len(row) <= 2 or row[2] is None:
                 continue
 
-            check_text = ' '.join(
-                str(row[i]).lower().strip()
-                for i in [1, 2]
-                if i < len(row) and row[i]
-            )
-            for key, label in channel_map.items():
-                if key in check_text:
-                    budget = _n(row[budget_col]) if len(row) > budget_col else 0
-                    gmv    = _n(row[gmv_col])    if len(row) > gmv_col    else 0
-                    if label in ('FB Catalog Sale', 'FB Retargeting'):
-                        kpi = _n(row[pdp_col]) if len(row) > pdp_col else _n(row[kpi_col]) if len(row) > kpi_col else 0
-                    else:
-                        kpi = _n(row[kpi_col]) if len(row) > kpi_col else 0
-                    if budget > 0:
-                        kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0
-                        kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders
-                        existing = result['channels'].get(label)
-                        if not existing or (existing['gmv'] == 0 and gmv > 0):
-                            result['channels'][label] = {
-                                'budget':     budget,
-                                'kpi':        kpi_orders,
-                                'kpi_funnel': kpi_funnel,
-                                'gmv':        gmv,
-                            }
-                    break
+            fmt   = str(row[2]).lower().strip()
+            label = _label_from_channel_format(current_channel, fmt)
+            if label is None:
+                continue
+
+            budget     = _n(row[budget_col]) if len(row) > budget_col else 0
+            gmv        = _n(row[gmv_col])    if len(row) > gmv_col    else 0
+            kpi_orders = _n(row[kpi_col])    if len(row) > kpi_col    else 0
+            kpi_funnel = _n(row[pdp_col])    if len(row) > pdp_col    else kpi_orders
+
+            if budget <= 0:
+                continue
+
+            existing = result['channels'].get(label)
+            if label == 'TikTok' and existing:
+                # Sum multiple TikTok rows (Reach + Video + GMV Max…)
+                result['channels'][label]['budget'] += budget
+                result['channels'][label]['kpi']    += kpi_orders
+            elif not existing or (existing['gmv'] == 0 and gmv > 0):
+                result['channels'][label] = {
+                    'budget':     budget,
+                    'kpi':        kpi_orders,
+                    'kpi_funnel': kpi_funnel,
+                    'gmv':        gmv,
+                }
 
     # Fallback: compute total_budget from channel sum if not parsed directly
     if result['total_budget'] == 0 and result['channels']:
@@ -356,33 +368,45 @@ def _parse_tiktok_sheet(wb, sheet_name):
     for col in df.columns:
         cl = col.lower().strip()
         if 'ad name' in cl and 'name' not in mapped:
-            col_map[col] = 'Ad Name';      mapped.add('name')
+            col_map[col] = 'Ad Name';       mapped.add('name')
         elif 'campaign name' in cl and 'campaign' not in mapped:
-            col_map[col] = 'Campaign';     mapped.add('campaign')
+            col_map[col] = 'Campaign';      mapped.add('campaign')
         elif 'ad group' in cl and 'adgroup' not in mapped:
-            col_map[col] = 'Ad Group';     mapped.add('adgroup')
-        elif cl in ('impressions', 'impression') and 'impressions' not in mapped:
-            col_map[col] = 'Impressions';  mapped.add('impressions')
-        elif cl in ('clicks', 'click') and 'clicks' not in mapped:
-            col_map[col] = 'Clicks';       mapped.add('clicks')
-        elif cl == 'ctr' and 'ctr' not in mapped:
-            col_map[col] = 'CTR';          mapped.add('ctr')
+            col_map[col] = 'Ad Group';      mapped.add('adgroup')
+        elif cl == 'impressions' and 'impressions' not in mapped:
+            col_map[col] = 'Impressions';   mapped.add('impressions')
+        elif cl in ('clicks', 'click', 'clicks (destination)') and 'clicks' not in mapped:
+            col_map[col] = 'Clicks';        mapped.add('clicks')
+        elif cl in ('ctr', 'ctr (destination)') and 'ctr' not in mapped:
+            col_map[col] = 'CTR';           mapped.add('ctr')
         elif cl in ('cost', 'spend', 'total cost') and 'spend' not in mapped:
-            col_map[col] = 'Spend';        mapped.add('spend')
-        elif ('video view' in cl or cl in ('vv', '2-second video views', '6-second video views')) and 'vv' not in mapped:
-            col_map[col] = 'VideoViews';   mapped.add('vv')
+            col_map[col] = 'Spend';         mapped.add('spend')
+        # 6-second focused views = primary TikTok video metric
+        elif ('6-second focused view' in cl or '6-second video view' in cl) and '6svv' not in mapped:
+            col_map[col] = 'Views6s';       mapped.add('6svv')
+        # 2-second / general video views fallback
+        elif ('video view' in cl or '2-second video view' in cl or cl == 'vv') and 'vv' not in mapped:
+            col_map[col] = 'VideoViews';    mapped.add('vv')
+        # Result rate = VVR (6-second view rate)
+        elif cl == 'result rate' and 'vvr' not in mapped:
+            col_map[col] = 'VVR';           mapped.add('vvr')
+        # Results = main objective metric (video views for Video View campaigns)
+        elif cl == 'results' and 'results' not in mapped:
+            col_map[col] = 'Results';       mapped.add('results')
         elif cl == 'reach' and 'reach' not in mapped:
-            col_map[col] = 'Reach';        mapped.add('reach')
+            col_map[col] = 'Reach';         mapped.add('reach')
         elif cl == 'frequency' and 'frequency' not in mapped:
-            col_map[col] = 'Frequency';    mapped.add('frequency')
-        elif 'conversion' in cl and 'cost' not in cl and 'conversions' not in mapped:
-            col_map[col] = 'Conversions';  mapped.add('conversions')
+            col_map[col] = 'Frequency';     mapped.add('frequency')
+        elif 'conversion' in cl and 'cost' not in cl and 'rate' not in cl and 'conversions' not in mapped:
+            col_map[col] = 'Conversions';   mapped.add('conversions')
         elif ('campaign type' in cl or 'objective' in cl) and 'camptype' not in mapped:
-            col_map[col] = 'Camp Type';    mapped.add('camptype')
+            col_map[col] = 'Camp Type';     mapped.add('camptype')
 
     df = df.rename(columns=col_map)
 
-    for col in ['Spend', 'Impressions', 'Clicks', 'VideoViews', 'Reach', 'Frequency', 'Conversions']:
+    num_cols = ['Spend', 'Impressions', 'Clicks', 'VideoViews', 'Views6s',
+                'Reach', 'Frequency', 'Conversions', 'Results', 'VVR', 'CTR']
+    for col in num_cols:
         if col in df.columns:
             s = df[col]
             if isinstance(s, pd.DataFrame):
@@ -406,41 +430,59 @@ def _agg_tiktok(df):
     def _s(col):
         return float(df[col].sum()) if col in df.columns else 0.0
 
+    def _s_df(d, col):
+        return float(d[col].sum()) if col in d.columns else 0.0
+
     total = {
         'spend':       _s('Spend'),
         'impressions': _s('Impressions'),
-        'video_views': _s('VideoViews'),
+        'views_6s':    _s('Views6s'),    # 6-second focused views (primary TikTok metric)
+        'video_views': _s('VideoViews'), # 2-second / generic fallback
         'reach':       _s('Reach'),
         'clicks':      _s('Clicks'),
         'conversions': _s('Conversions'),
     }
-    total['vvr'] = total['video_views'] / total['impressions'] if total['impressions'] > 0 else 0
-    total['ctr'] = total['clicks'] / total['impressions'] if total['impressions'] > 0 else 0
+    # VVR: use pre-computed column if available, else calculate from views_6s
+    imp = total['impressions']
+    if 'VVR' in df.columns and df['VVR'].sum() > 0:
+        total['vvr'] = float(df['VVR'].mean())
+    elif imp > 0:
+        primary_views = total['views_6s'] or total['video_views']
+        total['vvr']  = primary_views / imp
+    else:
+        total['vvr'] = 0
+    total['ctr'] = total['clicks'] / imp if imp > 0 else 0
 
-    # By Format/Camp Type
+    # Primary video metric label for display
+    total['vv_label']   = '6s Views' if total['views_6s'] > 0 else 'Video Views'
+    total['vv_primary'] = total['views_6s'] if total['views_6s'] > 0 else total['video_views']
+
+    # By Campaign (group by Campaign name)
     by_format = []
-    group_col = 'Camp Type' if 'Camp Type' in df.columns else ('Format' if 'Format' in df.columns else None)
+    group_col = 'Campaign' if 'Campaign' in df.columns else ('Camp Type' if 'Camp Type' in df.columns else None)
     if group_col:
         for gtype, gdf in df.groupby(group_col):
-            if not gtype or str(gtype).strip() in ('', 'nan', 'Other'):
+            if not gtype or str(gtype).strip() in ('', 'nan', 'Other', '-'):
                 continue
-            imp = gdf['Impressions'].sum() if 'Impressions' in gdf else 0
-            vv  = gdf['VideoViews'].sum()  if 'VideoViews'  in gdf else 0
+            gimp = _s_df(gdf, 'Impressions')
+            gvv  = _s_df(gdf, 'Views6s') or _s_df(gdf, 'VideoViews')
             by_format.append({
                 'type':        str(gtype),
-                'spend':       gdf['Spend'].sum()       if 'Spend'       in gdf else 0,
-                'impressions': imp,
-                'video_views': vv,
-                'reach':       gdf['Reach'].sum()       if 'Reach'       in gdf else 0,
-                'clicks':      gdf['Clicks'].sum()      if 'Clicks'      in gdf else 0,
-                'vvr':         vv / imp if imp > 0 else 0,
+                'spend':       _s_df(gdf, 'Spend'),
+                'impressions': gimp,
+                'video_views': gvv,
+                'reach':       _s_df(gdf, 'Reach'),
+                'clicks':      _s_df(gdf, 'Clicks'),
+                'vvr':         gvv / gimp if gimp > 0 else 0,
             })
         by_format.sort(key=lambda x: x['spend'], reverse=True)
 
-    # Top ads by VideoViews (fallback to Impressions)
-    sort_col = 'VideoViews' if 'VideoViews' in df.columns else 'Impressions'
-    top_df   = df.sort_values(sort_col, ascending=False).head(10) if sort_col in df.columns else df.head(10)
-    top_ads  = top_df.to_dict('records')
+    # Top ads sorted by 6s views → VideoViews → Impressions
+    sort_col = ('Views6s' if 'Views6s' in df.columns and df['Views6s'].sum() > 0
+                else 'VideoViews' if 'VideoViews' in df.columns
+                else 'Impressions')
+    top_df  = df.sort_values(sort_col, ascending=False).head(10) if sort_col in df.columns else df.head(10)
+    top_ads = top_df.to_dict('records')
 
     return {'total': total, 'by_format': by_format, 'top_ads': top_ads}
 

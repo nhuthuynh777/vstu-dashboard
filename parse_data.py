@@ -82,11 +82,13 @@ def _detect_sheets(wb):
     Returns dict: {role: sheet_name}
     """
     roles = {
-        'media_plan':    None,
-        'fb_current':    None,
-        'fb_prev':       None,
-        'shopee_current': None,
-        'shopee_prev':    None,
+        'media_plan':      None,
+        'fb_current':      None,
+        'fb_prev':         None,
+        'shopee_current':  None,
+        'shopee_prev':     None,
+        'tiktok_current':  None,
+        'tiktok_prev':     None,
     }
 
     for sname in wb.sheetnames:
@@ -110,6 +112,17 @@ def _detect_sheets(wb):
             else:
                 if roles['fb_current'] is None:
                     roles['fb_current'] = sname
+            continue
+
+        # TikTok raw: "ad name" + "cost" + ("video" or "tiktok" in sheet name), NOT "amount spent"
+        if ('ad name' in flat and 'cost' in flat and 'amount spent' not in flat and
+                ('video' in flat or 'tiktok' in sname.lower())):
+            if _is_prev_sheet(sname):
+                if roles['tiktok_prev'] is None:
+                    roles['tiktok_prev'] = sname
+            else:
+                if roles['tiktok_current'] is None:
+                    roles['tiktok_current'] = sname
             continue
 
         # Shopee: has "gmv" + "expense" (both product & campaign sheets)
@@ -165,13 +178,13 @@ def parse_media_plan(wb, sheet_name):
             'dynamic retargeting': 'FB Retargeting',
             'gmv max':             'Shopee GMV Max',
             'shopee':              'Shopee GMV Max',
+            'tiktok':              'TikTok',
         }
 
         # Detect columns from BOTH header row and sub-header row (row below)
         hdr = [str(v).lower().strip() if v else '' for v in rows[header_row]]
         sub = [str(v).lower().strip() if v else ''
                for v in rows[header_row + 1]] if header_row + 1 < len(rows) else []
-        # Merge: sub-header takes priority for metric columns
         combined = [(sub[i] if i < len(sub) and sub[i] else hdr[i])
                     for i in range(max(len(hdr), len(sub)))]
 
@@ -182,11 +195,14 @@ def parse_media_plan(wb, sheet_name):
             return default
 
         budget_col = _find_col(['budget', 'งบ'], 6)
-        kpi_col    = _find_col(['inventory buying', 'inventory'], 8)   # target quantity per channel
-        gmv_col    = _find_col(['gmv'], 22)                            # GMV plan (newer sheets)
-        pdp_col    = _find_col(['pdp/atc', 'pdp'], 21)                 # conversion KPI
+        kpi_col    = _find_col(['inventory buying', 'inventory'], 8)
+        gmv_col    = _find_col(['gmv'], 22)
+        pdp_col    = _find_col(['pdp/atc', 'pdp'], 21)
 
-        # Scan all rows below header until 3 consecutive empty rows (no hard row limit)
+        # Scan all rows below header until 3 consecutive empty rows.
+        # Only check col 1 (channel) + col 2 (format) to avoid matching
+        # keywords inside long "Targeting Audience" description text.
+        # Skip rows where col 2 is None — these are section headers / totals.
         consecutive_empty = 0
         for row in rows[header_row + 1:]:
             if not any(v for v in row):
@@ -195,30 +211,36 @@ def parse_media_plan(wb, sheet_name):
                     break
                 continue
             consecutive_empty = 0
-            for i, v in enumerate(row):
-                if not v:
-                    continue
-                vl = str(v).lower().strip()
-                for key, label in channel_map.items():
-                    if key in vl:
-                        budget = _n(row[budget_col]) if len(row) > budget_col else 0
-                        gmv    = _n(row[gmv_col])    if len(row) > gmv_col    else 0
-                        if label in ('FB Catalog Sale', 'FB Retargeting'):
-                            kpi = _n(row[pdp_col]) if len(row) > pdp_col else _n(row[kpi_col]) if len(row) > kpi_col else 0
-                        else:
-                            kpi = _n(row[kpi_col]) if len(row) > kpi_col else 0
-                        if budget > 0:
-                            kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0
-                            kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders
-                            existing = result['channels'].get(label)
-                            if not existing or (existing['gmv'] == 0 and gmv > 0):
-                                result['channels'][label] = {
-                                    'budget':     budget,
-                                    'kpi':        kpi_orders,
-                                    'kpi_funnel': kpi_funnel,
-                                    'gmv':        gmv,
-                                }
-                        break
+
+            # Skip section header / total rows (no format in col 2)
+            if len(row) <= 2 or row[2] is None:
+                continue
+
+            check_text = ' '.join(
+                str(row[i]).lower().strip()
+                for i in [1, 2]
+                if i < len(row) and row[i]
+            )
+            for key, label in channel_map.items():
+                if key in check_text:
+                    budget = _n(row[budget_col]) if len(row) > budget_col else 0
+                    gmv    = _n(row[gmv_col])    if len(row) > gmv_col    else 0
+                    if label in ('FB Catalog Sale', 'FB Retargeting'):
+                        kpi = _n(row[pdp_col]) if len(row) > pdp_col else _n(row[kpi_col]) if len(row) > kpi_col else 0
+                    else:
+                        kpi = _n(row[kpi_col]) if len(row) > kpi_col else 0
+                    if budget > 0:
+                        kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0
+                        kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders
+                        existing = result['channels'].get(label)
+                        if not existing or (existing['gmv'] == 0 and gmv > 0):
+                            result['channels'][label] = {
+                                'budget':     budget,
+                                'kpi':        kpi_orders,
+                                'kpi_funnel': kpi_funnel,
+                                'gmv':        gmv,
+                            }
+                    break
 
     # Fallback: compute total_budget from channel sum if not parsed directly
     if result['total_budget'] == 0 and result['channels']:
@@ -291,6 +313,108 @@ def _parse_fb_sheet(wb, sheet_name):
         df['Camp Type']  = df['Campaign'].apply(classify_campaign)
 
     return df
+
+
+# ── TikTok raw parser ────────────────────────────────────────────────────────
+
+def _parse_tiktok_sheet(wb, sheet_name):
+    """Parse TikTok Ads Manager export into a cleaned DataFrame."""
+    if not sheet_name or sheet_name not in wb.sheetnames:
+        return pd.DataFrame()
+
+    ws = wb[sheet_name]
+    rows = list(ws.iter_rows(values_only=True))
+
+    header_idx = None
+    for i, row in enumerate(rows[:10]):
+        flat = ' '.join(str(v).lower() for v in row if v)
+        if 'ad name' in flat and ('cost' in flat or 'spend' in flat):
+            header_idx = i
+            break
+    if header_idx is None:
+        return pd.DataFrame()
+
+    headers = [str(h).strip() if h else f'col_{i}' for i, h in enumerate(rows[header_idx])]
+    data = [list(r) for r in rows[header_idx + 1:] if any(v is not None for v in r)]
+    df = pd.DataFrame(data, columns=headers)
+
+    col_map = {}
+    for col in df.columns:
+        cl = col.lower().strip()
+        if 'ad name' in cl:                               col_map[col] = 'Ad Name'
+        elif 'campaign name' in cl:                       col_map[col] = 'Campaign'
+        elif 'ad group' in cl:                            col_map[col] = 'Ad Group'
+        elif cl == 'impressions' or cl == 'impression':   col_map[col] = 'Impressions'
+        elif cl == 'clicks' or cl == 'click':             col_map[col] = 'Clicks'
+        elif cl == 'ctr':                                 col_map[col] = 'CTR'
+        elif cl in ('cost', 'spend', 'total cost'):       col_map[col] = 'Spend'
+        elif 'video view' in cl or cl in ('vv', '2-second video views', '6-second video views'):
+                                                          col_map[col] = 'VideoViews'
+        elif cl == 'reach':                               col_map[col] = 'Reach'
+        elif cl == 'frequency':                           col_map[col] = 'Frequency'
+        elif 'conversion' in cl and 'cost' not in cl:    col_map[col] = 'Conversions'
+        elif 'campaign type' in cl or 'objective' in cl: col_map[col] = 'Camp Type'
+
+    df = df.rename(columns=col_map)
+
+    for col in ['Spend', 'Impressions', 'Clicks', 'VideoViews', 'Reach', 'Frequency', 'Conversions']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    if 'Ad Name' in df.columns:
+        df['Brand']  = df['Ad Name'].apply(extract_brand)
+        df['Format'] = df['Ad Name'].apply(extract_format)
+    if 'Camp Type' not in df.columns and 'Campaign' in df.columns:
+        df['Camp Type'] = df['Campaign'].apply(classify_campaign)
+
+    return df
+
+
+def _agg_tiktok(df):
+    """Aggregate TikTok raw data for the TikTok tab."""
+    if df.empty:
+        return {'total': {}, 'by_format': [], 'top_ads': []}
+
+    def _s(col):
+        return float(df[col].sum()) if col in df.columns else 0.0
+
+    total = {
+        'spend':       _s('Spend'),
+        'impressions': _s('Impressions'),
+        'video_views': _s('VideoViews'),
+        'reach':       _s('Reach'),
+        'clicks':      _s('Clicks'),
+        'conversions': _s('Conversions'),
+    }
+    total['vvr'] = total['video_views'] / total['impressions'] if total['impressions'] > 0 else 0
+    total['ctr'] = total['clicks'] / total['impressions'] if total['impressions'] > 0 else 0
+
+    # By Format/Camp Type
+    by_format = []
+    group_col = 'Camp Type' if 'Camp Type' in df.columns else ('Format' if 'Format' in df.columns else None)
+    if group_col:
+        for gtype, gdf in df.groupby(group_col):
+            if not gtype or str(gtype).strip() in ('', 'nan', 'Other'):
+                continue
+            imp = gdf['Impressions'].sum() if 'Impressions' in gdf else 0
+            vv  = gdf['VideoViews'].sum()  if 'VideoViews'  in gdf else 0
+            by_format.append({
+                'type':        str(gtype),
+                'spend':       gdf['Spend'].sum()       if 'Spend'       in gdf else 0,
+                'impressions': imp,
+                'video_views': vv,
+                'reach':       gdf['Reach'].sum()       if 'Reach'       in gdf else 0,
+                'clicks':      gdf['Clicks'].sum()      if 'Clicks'      in gdf else 0,
+                'vvr':         vv / imp if imp > 0 else 0,
+            })
+        by_format.sort(key=lambda x: x['spend'], reverse=True)
+
+    # Top ads by VideoViews (fallback to Impressions)
+    sort_col = 'VideoViews' if 'VideoViews' in df.columns else 'Impressions'
+    top_df   = df.sort_values(sort_col, ascending=False).head(10) if sort_col in df.columns else df.head(10)
+    top_ads  = top_df.to_dict('records')
+
+    return {'total': total, 'by_format': by_format, 'top_ads': top_ads}
 
 
 # ── Shopee raw parsers ────────────────────────────────────────────────────────
@@ -671,17 +795,20 @@ def parse_all(file_bytes):
     wb = openpyxl.load_workbook(BytesIO(file_bytes), data_only=True)
     roles = _detect_sheets(wb)
 
-    plan         = parse_media_plan(wb, roles['media_plan'])
-    df_fb        = _parse_fb_sheet(wb, roles['fb_current'])
-    df_fb_prev   = _parse_fb_sheet(wb, roles['fb_prev'])
-    df_shopee    = _parse_shopee_sheet(wb, roles['shopee_current'])
-    df_shopee_p  = df_shopee   # same sheet, brand col already extracted
-    df_shopeep = _parse_shopee_sheet(wb, roles['shopee_prev'])
+    plan           = parse_media_plan(wb, roles['media_plan'])
+    df_fb          = _parse_fb_sheet(wb, roles['fb_current'])
+    df_fb_prev     = _parse_fb_sheet(wb, roles['fb_prev'])
+    df_shopee      = _parse_shopee_sheet(wb, roles['shopee_current'])
+    df_shopee_p    = df_shopee
+    df_shopeep     = _parse_shopee_sheet(wb, roles['shopee_prev'])
+    df_tiktok      = _parse_tiktok_sheet(wb, roles['tiktok_current'])
+    df_tiktok_prev = _parse_tiktok_sheet(wb, roles['tiktok_prev'])
 
     branding   = _agg_branding(df_fb)
     fb_conv    = _agg_conversion(df_fb)
     sale       = _agg_sale_summary(df_fb, df_shopee)
     sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep)
+    tiktok     = _agg_tiktok(df_tiktok)
 
     # Shopee campaign list — each row is one ad/campaign
     shopee_campaigns = []
@@ -732,7 +859,7 @@ def parse_all(file_bytes):
             'total_current': sale['total'],
             'total_prev':    sale_prev.get('total', {}),
             'date_range':    '',
-            'overall':       _build_overall_table(plan, sale, branding, fb_conv),
+            'overall':       _build_overall_table(plan, sale, branding, fb_conv, tiktok),
         },
         'branding':   branding,
         'conversion': {
@@ -744,6 +871,8 @@ def parse_all(file_bytes):
             'shopee_products_cur':  shopee_products_cur,
             'shopee_products_prev': shopee_products_prev,
         },
+        'tiktok':     tiktok,
+        'tiktok_raw': df_tiktok,
         'fb_raw':     df_fb,
         'date_range': _detect_date_range(df_fb),
         '_roles':     roles,
@@ -751,7 +880,7 @@ def parse_all(file_bytes):
     }
 
 
-def _build_overall_table(plan, sale, branding, fb_conv):
+def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None):
     """Build plan vs actual rows for Overview tab."""
     rows = []
     ch_plan = plan.get('channels', {})
@@ -765,9 +894,11 @@ def _build_overall_table(plan, sale, branding, fb_conv):
         ('FB Catalog Sale', 'FB Catalog Sale',   fb_dict.get('Catalog Sale', {}), fb_dict.get('Catalog Sale', {})),
         ('FB Retargeting',  'FB Retargeting',    fb_dict.get('Retargeting', {}),  fb_dict.get('Retargeting', {})),
         ('Shopee GMV Max',  'Shopee GMV Max',    {}, None),
+        ('TikTok',          'TikTok',            {}, None),
     ]
 
     shopee_sale  = next((c for c in sale['channels'] if c['channel'] == 'Shopee'), {})
+    tiktok_total = (tiktok or {}).get('total', {})
     handled_keys = set()
 
     for label, plan_key, actual_data, conv_data in mapping:
@@ -778,6 +909,11 @@ def _build_overall_table(plan, sale, branding, fb_conv):
             actual_kpi   = shopee_sale.get('orders', 0)
             kpi_plan     = p.get('kpi', 0)
             roas_actual  = shopee_sale.get('roas', 0)
+        elif label == 'TikTok':
+            actual_spend = tiktok_total.get('spend', 0)
+            actual_kpi   = tiktok_total.get('video_views', tiktok_total.get('impressions', 0))
+            kpi_plan     = p.get('kpi', 0)
+            roas_actual  = 0
         elif label in ('FB Catalog Sale', 'FB Retargeting'):
             actual_spend = actual_data.get('spend', 0)
             actual_kpi   = (actual_data.get('pdp_views', 0) + actual_data.get('atc', 0) +

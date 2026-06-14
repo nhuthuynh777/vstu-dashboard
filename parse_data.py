@@ -186,7 +186,15 @@ def parse_media_plan(wb, sheet_name):
         gmv_col    = _find_col(['gmv'], 22)                            # GMV plan (newer sheets)
         pdp_col    = _find_col(['pdp/atc', 'pdp'], 21)                 # conversion KPI
 
-        for row in rows[header_row + 1: header_row + 15]:
+        # Scan all rows below header until 3 consecutive empty rows (no hard row limit)
+        consecutive_empty = 0
+        for row in rows[header_row + 1:]:
+            if not any(v for v in row):
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    break
+                continue
+            consecutive_empty = 0
             for i, v in enumerate(row):
                 if not v:
                     continue
@@ -200,14 +208,14 @@ def parse_media_plan(wb, sheet_name):
                         else:
                             kpi = _n(row[kpi_col]) if len(row) > kpi_col else 0
                         if budget > 0:
-                            kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0   # col 8 always
-                            kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders  # col 21 if available
+                            kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0
+                            kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders
                             existing = result['channels'].get(label)
                             if not existing or (existing['gmv'] == 0 and gmv > 0):
                                 result['channels'][label] = {
                                     'budget':     budget,
-                                    'kpi':        kpi_orders,  # col 8 — purchase/impression target for KPI cards
-                                    'kpi_funnel': kpi_funnel,  # col 21 — funnel total for Plan vs Actual table
+                                    'kpi':        kpi_orders,
+                                    'kpi_funnel': kpi_funnel,
                                     'gmv':        gmv,
                                 }
                         break
@@ -759,11 +767,12 @@ def _build_overall_table(plan, sale, branding, fb_conv):
         ('Shopee GMV Max',  'Shopee GMV Max',    {}, None),
     ]
 
-    # Wire Shopee from sale channels
-    shopee_sale = next((c for c in sale['channels'] if c['channel'] == 'Shopee'), {})
+    shopee_sale  = next((c for c in sale['channels'] if c['channel'] == 'Shopee'), {})
+    handled_keys = set()
 
     for label, plan_key, actual_data, conv_data in mapping:
         p = ch_plan.get(plan_key, {})
+        handled_keys.add(plan_key)
         if label == 'Shopee GMV Max':
             actual_spend = shopee_sale.get('spend', 0)
             actual_kpi   = shopee_sale.get('orders', 0)
@@ -792,4 +801,19 @@ def _build_overall_table(plan, sale, branding, fb_conv):
             'kpi_pct':        actual_kpi / kpi_plan if kpi_plan > 0 else 0,
             'roas_actual':    roas_actual,
         })
+
+    # Channels có trong plan nhưng chưa có trong mapping cứng → thêm vào cuối (actual = 0)
+    for plan_key, p in ch_plan.items():
+        if plan_key not in handled_keys and p.get('budget', 0) > 0:
+            rows.append({
+                'channel':       plan_key,
+                'budget_plan':   p.get('budget', 0),
+                'budget_actual': 0,
+                'budget_pct':    0,
+                'kpi_plan':      p.get('kpi', 0),
+                'kpi_actual':    0,
+                'kpi_pct':       0,
+                'roas_actual':   0,
+            })
+
     return rows

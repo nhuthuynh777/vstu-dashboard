@@ -89,6 +89,7 @@ def _detect_sheets(wb):
         'shopee_prev':     None,
         'tiktok_current':  None,
         'tiktok_prev':     None,
+        'tiktok_gmvmax':   None,
     }
 
     for sname in wb.sheetnames:
@@ -112,6 +113,13 @@ def _detect_sheets(wb):
             else:
                 if roles['fb_current'] is None:
                     roles['fb_current'] = sname
+            continue
+
+        # TikTok GMV Max: has "spu name" or ("gross revenue" + "purchases") — shop sales sheet
+        if (('spu name' in flat or 'spu id' in flat) or
+                ('gross revenue' in flat and 'purchases' in flat and 'ad name' not in flat)):
+            if roles['tiktok_gmvmax'] is None:
+                roles['tiktok_gmvmax'] = sname
             continue
 
         # TikTok raw: "ad name" + "cost" + ("video" or "tiktok" in sheet name), NOT "amount spent"
@@ -418,6 +426,72 @@ def _parse_tiktok_sheet(wb, sheet_name):
         df['Format'] = df['Ad Name'].apply(extract_format)
     if 'Camp Type' not in df.columns and 'Campaign' in df.columns:
         df['Camp Type'] = df['Campaign'].apply(classify_campaign)
+
+    # TikTok exports in THB — convert to VNĐ
+    if 'Spend' in df.columns:
+        df['Spend'] = df['Spend'] * THB_TO_VND
+
+    return df
+
+
+def _parse_tiktok_gmvmax_sheet(wb, sheet_name):
+    """Parse TikTok Shop Sales (GMV Max / SPU-level) sheet."""
+    if not sheet_name or sheet_name not in wb.sheetnames:
+        return pd.DataFrame()
+
+    ws = wb[sheet_name]
+    rows = list(ws.iter_rows(values_only=True))
+
+    header_idx = None
+    for i, row in enumerate(rows[:10]):
+        flat = ' '.join(str(v).lower() for v in row if v)
+        if ('spu' in flat or 'product' in flat) and ('purchases' in flat or 'revenue' in flat):
+            header_idx = i
+            break
+    if header_idx is None:
+        return pd.DataFrame()
+
+    raw_headers = [str(h).strip() if h else f'col_{i}' for i, h in enumerate(rows[header_idx])]
+    data = [list(r) for r in rows[header_idx + 1:] if any(v is not None for v in r)]
+    if not data:
+        return pd.DataFrame()
+    df = pd.DataFrame(data, columns=raw_headers)
+
+    col_map = {}
+    for col in df.columns:
+        cl = col.lower().strip()
+        if 'account name' in cl:                                    col_map[col] = 'Account'
+        elif 'campaign name' in cl:                                 col_map[col] = 'Campaign'
+        elif 'spu name' in cl or ('product name' in cl):           col_map[col] = 'Product'
+        elif 'spu id' in cl:                                        col_map[col] = 'SPU_ID'
+        elif 'brand' in cl:                                         col_map[col] = 'Brand'
+        elif 'purchases (shop)' in cl or cl == 'purchases':        col_map[col] = 'Purchases'
+        elif 'gross revenue' in cl:                                 col_map[col] = 'GMV_THB'
+        elif 'average order value' in cl or 'aov' in cl:           col_map[col] = 'AOV_THB'
+        elif 'items purchased' in cl:                               col_map[col] = 'Items'
+
+    df = df.rename(columns=col_map)
+
+    for col in ['Purchases', 'GMV_THB', 'AOV_THB', 'Items']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+    # THB → VNĐ
+    if 'GMV_THB' in df.columns:
+        df['GMV_VND'] = df['GMV_THB'] * THB_TO_VND
+    if 'AOV_THB' in df.columns:
+        df['AOV_VND'] = df['AOV_THB'] * THB_TO_VND
+
+    if 'Product' not in df.columns:
+        df['Product'] = 'Unknown'
+    if 'Campaign' not in df.columns:
+        df['Campaign'] = ''
+    if 'Brand' not in df.columns:
+        df['Brand'] = df['Product'].apply(extract_brand) if 'Product' in df.columns else ''
+
+    # Filter summary rows
+    if 'Product' in df.columns:
+        df = df[~df['Product'].astype(str).str.match(r'^Total of \d+')]
 
     return df
 
@@ -873,6 +947,7 @@ def parse_all(file_bytes):
     df_shopeep     = _parse_shopee_sheet(wb, roles['shopee_prev'])
     df_tiktok      = _parse_tiktok_sheet(wb, roles['tiktok_current'])
     df_tiktok_prev = _parse_tiktok_sheet(wb, roles['tiktok_prev'])
+    df_tt_gmvmax   = _parse_tiktok_gmvmax_sheet(wb, roles['tiktok_gmvmax'])
 
     branding   = _agg_branding(df_fb)
     fb_conv    = _agg_conversion(df_fb)
@@ -941,8 +1016,9 @@ def parse_all(file_bytes):
             'shopee_products_cur':  shopee_products_cur,
             'shopee_products_prev': shopee_products_prev,
         },
-        'tiktok':     tiktok,
-        'tiktok_raw': df_tiktok,
+        'tiktok':          tiktok,
+        'tiktok_raw':      df_tiktok,
+        'tiktok_gmvmax':   df_tt_gmvmax,
         'fb_raw':     df_fb,
         'date_range': _detect_date_range(df_fb),
         '_roles':     roles,

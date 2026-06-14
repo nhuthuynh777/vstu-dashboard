@@ -6,15 +6,16 @@ from helpers import (kpi_html, kpi_grid, html_table, editable_insight,
 def render(data):
     st.markdown("## TikTok Ads")
 
-    tt      = data.get('tiktok', {})
-    total   = tt.get('total', {})
-    plan_ch = data.get('plan', {}).get('channels', {}).get('TikTok', {})
-    has_raw = bool(total)
+    tt         = data.get('tiktok', {})
+    total      = tt.get('total', {})
+    plan_ch    = data.get('plan', {}).get('channels', {}).get('TikTok', {})
+    has_raw    = bool(total)
+    df_gmvmax  = data.get('tiktok_gmvmax')
+    has_gmvmax = df_gmvmax is not None and not df_gmvmax.empty
 
     plan_budget = plan_ch.get('budget', 0)
-    plan_kpi    = plan_ch.get('kpi', 0)
 
-    if not has_raw and not plan_budget:
+    if not has_raw and not plan_budget and not has_gmvmax:
         st.markdown("""
         <div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;
         padding:48px;text-align:center;margin-top:24px;'>
@@ -26,7 +27,21 @@ def render(data):
         </div>""", unsafe_allow_html=True)
         return
 
-    # ── KPI Cards ────────────────────────────────────────────────────────────
+    tab_branding, tab_gmvmax = st.tabs(["📊 Branding", "📦 GMV Max"])
+
+    with tab_branding:
+        _render_branding(data, tt, total, plan_ch, has_raw, plan_budget)
+
+    with tab_gmvmax:
+        _render_gmvmax(df_gmvmax, has_gmvmax)
+
+
+# ── Branding tab ──────────────────────────────────────────────────────────────
+
+def _render_branding(data, tt, total, plan_ch, has_raw, plan_budget):
+    plan_budget = plan_ch.get('budget', 0)
+    plan_kpi    = plan_ch.get('kpi', 0)
+
     actual_spend = total.get('spend', 0)
     spend_pct    = actual_spend / plan_budget if plan_budget > 0 else None
 
@@ -77,7 +92,6 @@ def render(data):
                 fmt_num(f.get('reach', 0)),
                 fmt_num(f.get('clicks', 0)),
             ])
-        # Total row
         tot_imp = sum(f.get('impressions', 0) for f in by_format)
         tot_vv  = sum(f.get('video_views', 0) for f in by_format)
         rows.append([
@@ -104,7 +118,6 @@ def render(data):
             'CAOSTU': C['accent'],  'FNOS': C['blue'],
         }
 
-        # Determine primary video metric column
         vv_col   = ('Views6s'    if 'Views6s'    in df_raw.columns and df_raw['Views6s'].sum()    > 0
                     else 'VideoViews' if 'VideoViews' in df_raw.columns and df_raw['VideoViews'].sum() > 0
                     else None)
@@ -118,7 +131,6 @@ def render(data):
             **{c: 'first' for c in ['Brand', 'Format', 'Camp Type', 'Campaign'] if c in df_raw.columns},
         }).reset_index()
 
-        # Compute VVR per ad if not pre-computed
         if vv_col and 'Impressions' in agg.columns:
             agg['VVR_pct'] = agg.apply(
                 lambda r: r[vv_col] / r['Impressions'] * 100 if r['Impressions'] > 0 else 0, axis=1
@@ -131,10 +143,8 @@ def render(data):
 
         has_clicks = 'Clicks' in top_df.columns and top_df['Clicks'].sum() > 0
         col5_hdr   = vv_label or 'Impressions'
-        col6_hdr   = 'VVR'
-        col7_hdr   = 'CTR' if has_clicks else 'Imp'
 
-        headers = ['#', 'Ad Name', 'Brand', 'Format', col5_hdr, col6_hdr, col7_hdr, 'Spend']
+        headers = ['#', 'Ad Name', 'Brand', 'Format', col5_hdr, 'VVR', 'CTR' if has_clicks else 'Imp', 'Spend']
         aligns  = ['center', 'left', 'left', 'center', 'right', 'right', 'right', 'right']
         rows = []
         for i, (_, row) in enumerate(top_df.iterrows(), 1):
@@ -184,6 +194,90 @@ def render(data):
 
     st.markdown("---")
     editable_insight('tiktok', _auto_insight(total, by_format), 'purple')
+
+
+# ── GMV Max tab ───────────────────────────────────────────────────────────────
+
+def _render_gmvmax(df, has_gmvmax):
+    if not has_gmvmax:
+        st.markdown("""
+        <div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;
+        padding:48px;text-align:center;margin-top:24px;'>
+            <div style='font-size:18px;color:#0F172A;margin-bottom:8px;'>GMV Max — TikTok Shop Sales</div>
+            <div style='color:#64748B;font-size:13px;'>
+                Thêm sheet <strong>raw gmv max tiktok</strong> (SPU-level) vào file Excel để xem dữ liệu.<br>
+                Sheet cần có cột: SPU name, Purchases (Shop), Gross revenue (Shop).
+            </div>
+        </div>""", unsafe_allow_html=True)
+        return
+
+    total_gmv  = df['GMV_VND'].sum()   if 'GMV_VND'   in df.columns else 0
+    total_pur  = df['Purchases'].sum() if 'Purchases'  in df.columns else 0
+    total_items= df['Items'].sum()     if 'Items'      in df.columns else 0
+    aov        = total_gmv / total_pur if total_pur > 0 else 0
+
+    st.markdown(
+        '<div style="font-size:11px;color:#9CA3AF;margin-bottom:12px;">'
+        '💱 Gross Revenue & AOV đã quy đổi: 1 THB = 830 VNĐ</div>',
+        unsafe_allow_html=True,
+    )
+
+    kpi_grid(
+        kpi_html('Total GMV',    fmt_vnd(total_gmv),   '—', 'accent'),
+        kpi_html('Purchases',    fmt_num(total_pur),    '—', 'blue'),
+        kpi_html('Items Sold',   fmt_num(total_items),  '—', 'purple'),
+        kpi_html('AOV',          fmt_vnd(aov),          '—', 'yellow'),
+        cols=4,
+    )
+
+    st.markdown("---")
+
+    # Top products by GMV
+    if 'Product' in df.columns and 'GMV_VND' in df.columns:
+        section('Top Products by GMV', 'accent')
+        top_gmv = (df.groupby('Product', as_index=False)
+                   .agg(GMV_VND=('GMV_VND', 'sum'), Purchases=('Purchases', 'sum'))
+                   .sort_values('GMV_VND', ascending=False).head(15))
+        headers = ['#', 'Product', 'GMV', 'Purchases']
+        aligns  = ['center', 'left', 'right', 'right']
+        rows = []
+        for i, (_, row) in enumerate(top_gmv.iterrows(), 1):
+            name = str(row['Product'])
+            rows.append([
+                str(i),
+                f'<span title="{name}">{name[:60]}…</span>' if len(name) > 60 else name,
+                fmt_vnd(row['GMV_VND']),
+                fmt_num(row['Purchases']),
+            ])
+        html_table(headers, rows, aligns)
+
+    # By Campaign
+    if 'Campaign' in df.columns and df['Campaign'].str.strip().ne('').any():
+        st.markdown("---")
+        section('GMV by Campaign', 'blue')
+        by_camp = (df.groupby('Campaign', as_index=False)
+                   .agg(GMV_VND=('GMV_VND', 'sum'), Purchases=('Purchases', 'sum'))
+                   .sort_values('GMV_VND', ascending=False))
+        headers = ['Campaign', 'GMV', 'Purchases']
+        aligns  = ['left', 'right', 'right']
+        rows = [[str(r['Campaign'])[:50], fmt_vnd(r['GMV_VND']), fmt_num(r['Purchases'])]
+                for _, r in by_camp.iterrows()]
+        html_table(headers, rows, aligns)
+
+    # By Brand (if multiple)
+    if 'Brand' in df.columns:
+        brands = df[df['Brand'].str.strip() != '']['Brand'].unique()
+        if len(brands) > 1:
+            st.markdown("---")
+            section('GMV by Brand', 'purple')
+            by_brand = (df.groupby('Brand', as_index=False)
+                        .agg(GMV_VND=('GMV_VND', 'sum'), Purchases=('Purchases', 'sum'))
+                        .sort_values('GMV_VND', ascending=False))
+            headers = ['Brand', 'GMV', 'Purchases']
+            aligns  = ['left', 'right', 'right']
+            rows = [[str(r['Brand']), fmt_vnd(r['GMV_VND']), fmt_num(r['Purchases'])]
+                    for _, r in by_brand.iterrows()]
+            html_table(headers, rows, aligns)
 
 
 def _auto_insight(total, by_format):

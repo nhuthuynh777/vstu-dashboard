@@ -13,7 +13,7 @@ BRAND_COLORS = {
 
 
 def render(data):
-    st.markdown("## 📋 Content Performance — Ad Level")
+    st.markdown("## Content Performance — Ad Level")
 
     df = data.get('fb_raw', pd.DataFrame())
     if df.empty or 'Ad Name' not in df.columns:
@@ -38,7 +38,7 @@ def render(data):
     if f_status != 'All' and 'Status'    in dff.columns: dff = dff[dff['Status'] == f_status]
 
     st.markdown(
-        f'<div style="color:#7A7670;font-size:12px;margin-bottom:12px">'
+        f'<div style="color:#64748B;font-size:12px;margin-bottom:12px">'
         f'{len(dff)} ads · {dff["Brand"].nunique() if "Brand" in dff.columns else "—"} brands</div>',
         unsafe_allow_html=True
     )
@@ -95,15 +95,15 @@ def render(data):
     for i, (_, row) in enumerate(agg.head(50).iterrows(), 1):
         name     = str(row.get('Ad Name', ''))
         brand    = str(row.get('Brand', 'OTHER'))
-        b_color  = BRAND_COLORS.get(brand, '#7A7670')
+        b_color  = BRAND_COLORS.get(brand, '#64748B')
         fmt_name = f'<span title="{name}">{name[:45]}…</span>' if len(name) > 45 else name
         status   = str(row.get('Status', ''))
-        s_color  = C['green'] if 'active' in status.lower() else '#7A7670'
+        s_color  = C['green'] if 'active' in status.lower() else '#64748B'
 
         vtr = row.get('ThruPlays', 0) / row.get('Impressions', 1) * 100 if row.get('Impressions', 0) else 0
 
         base = [
-            f'<span style="color:#7A7670">{i}</span>',
+            f'<span style="color:#64748B">{i}</span>',
             fmt_name,
             f'<span style="color:{b_color};font-size:11px;font-weight:600">{brand}</span>',
             str(row.get('Format', '—')),
@@ -144,7 +144,7 @@ def render(data):
         aligns_b  = ['left', 'right', 'right', 'right']
         rows_b = []
         for _, r in brand_agg.iterrows():
-            bc = BRAND_COLORS.get(str(r['Brand']), '#7A7670')
+            bc = BRAND_COLORS.get(str(r['Brand']), '#64748B')
             rows_b.append([
                 f'<span style="color:{bc};font-weight:600">{r["Brand"]}</span>',
                 fmt_num(r['ads']),

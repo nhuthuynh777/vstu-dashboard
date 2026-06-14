@@ -88,32 +88,76 @@ def drive_upload_file(file_bytes):
         return False
 
 
-C = dict(accent='#C9A96E', green='#4CAF7D', yellow='#E8A838',
-         pink='#C97B8A', blue='#5B8DB8', red='#C05555', purple='#8B7BAB')
+C = dict(accent='#92400E', green='#16A34A', yellow='#B45309',
+         pink='#BE185D', blue='#1D4ED8', red='#DC2626', purple='#6D28D9')
 
 CSS = """
 <style>
-  .stApp { background-color: #0D0D0D; color: #E8E2D9; }
-  .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
-  .kpi-card { background:#141414; border:1px solid #2A2A2A; border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; }
-  .kpi-grid { display:grid; gap:12px; align-items:stretch; margin-bottom:16px; }
-  .kpi-label { color:#7A7670; font-size:11px; text-transform:uppercase; letter-spacing:.6px; margin-bottom:6px; }
-  .kpi-value { font-size:22px; font-weight:700; }
-  .kpi-sub   { color:#7A7670; font-size:12px; margin-top:3px; }
-  .prog-bg   { background:#1E1E1E; border-radius:4px; height:6px; overflow:hidden; margin-top:6px; }
-  .prog-fill { height:100%; border-radius:4px; }
-  .kpi-accent { border-top:3px solid #C9A96E; } .kpi-accent .kpi-value { color:#C9A96E; }
-  .kpi-green  { border-top:3px solid #4CAF7D; } .kpi-green  .kpi-value { color:#4CAF7D; }
-  .kpi-blue   { border-top:3px solid #5B8DB8; } .kpi-blue   .kpi-value { color:#5B8DB8; }
-  .kpi-yellow { border-top:3px solid #E8A838; } .kpi-yellow .kpi-value { color:#E8A838; }
-  .kpi-pink   { border-top:3px solid #C97B8A; } .kpi-pink   .kpi-value { color:#C97B8A; }
-  .kpi-purple { border-top:3px solid #8B7BAB; } .kpi-purple .kpi-value { color:#8B7BAB; }
-  .stTabs [data-baseweb="tab-list"] { background:#141414; border-radius:8px; padding:3px; gap:2px; }
-  .stTabs [data-baseweb="tab"] { color:#7A7670; border-radius:6px; }
-  .stTabs [aria-selected="true"] { background:#2A2A2A !important; color:#C9A96E !important; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th { color:#7A7670; font-size:11px; text-transform:uppercase; padding:8px 10px; border-bottom:1px solid #2A2A2A; }
-  td { padding:9px 10px; border-bottom:1px solid rgba(42,42,42,.5); color:#E8E2D9; }
+  /* ── Base ─────────────────────────────────────────────────── */
+  .stApp { background-color:#F7F6F3; color:#1A1A1A; }
+  .block-container { padding-top:1.5rem; padding-bottom:2rem; }
+
+  /* ── KPI Cards ────────────────────────────────────────────── */
+  .kpi-card {
+    background:#FFFFFF;
+    border:0.5px solid rgba(0,0,0,0.08);
+    border-radius:12px;
+    padding:18px 20px;
+    display:flex;
+    flex-direction:column;
+    box-shadow:0 1px 4px rgba(0,0,0,0.04);
+    position:relative;
+    overflow:hidden;
+  }
+  .kpi-grid  { display:grid; gap:12px; align-items:stretch; margin-bottom:18px; }
+  .kpi-label { color:#9CA3AF; font-size:10.5px; text-transform:uppercase; letter-spacing:.7px; margin-bottom:6px; font-weight:400; }
+  .kpi-value { font-size:22px; font-weight:500; color:#1A1A1A; }
+  .kpi-sub   { color:#6B7280; font-size:12px; margin-top:4px; line-height:1.5; font-weight:400; }
+  .prog-bg   { background:#EDEBE6; border-radius:3px; height:4px; overflow:hidden; margin-top:10px; }
+  .prog-fill { height:100%; border-radius:3px; }
+
+  /* ── Tabs ─────────────────────────────────────────────────── */
+  .stTabs [data-baseweb="tab-list"] {
+    background:#EDECEA;
+    border-radius:12px;
+    padding:6px;
+    gap:4px;
+  }
+  .stTabs [data-baseweb="tab"] {
+    color:#6B7280;
+    border-radius:9px;
+    font-size:14px;
+    font-weight:400;
+    min-height:38px;
+    padding-left:18px !important;
+    padding-right:18px !important;
+  }
+  .stTabs [aria-selected="true"] {
+    background:#FFFFFF !important;
+    color:#4A2000 !important;
+    font-weight:500 !important;
+    box-shadow:0 2px 8px rgba(0,0,0,0.10) !important;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  table    { width:100%; border-collapse:collapse; font-size:13px; }
+  thead tr { background:#4A2000; }
+  th {
+    color:#FFF5EC;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.6px;
+    padding:10px 12px;
+    border-bottom:none;
+    font-weight:500;
+  }
+  td { padding:10px 12px; border-bottom:1px solid rgba(0,0,0,0.04); color:#1A1A1A; font-weight:400; }
+  tr:hover td { background:rgba(74,32,0,0.03); }
+
+  /* ── Sidebar footer ───────────────────────────────────────── */
+  .sidebar-footer { margin-top:auto; padding-top:20px; }
+
+  /* ── Hide chrome ──────────────────────────────────────────── */
   #MainMenu { visibility:hidden; } footer { visibility:hidden; }
 </style>
 """
@@ -123,18 +167,22 @@ def kpi(label, value, sub="", color="accent", progress=None):
     prog = ""
     if progress is not None:
         pct = min(progress * 100, 100)
-        prog = f'<div class="prog-bg" style="margin-top:6px"><div class="prog-fill" style="width:{pct:.1f}%;background:{C.get(color, C["accent"])}"></div></div>'
+        prog = f'<div class="prog-bg" style="margin-top:8px"><div class="prog-fill" style="width:{pct:.1f}%;background:{C.get(color, C["accent"])}"></div></div>'
     sub_h = f'<div class="kpi-sub" style="margin-top:3px;line-height:1.4">{sub}</div>' if sub else ''
-    st.markdown(f'<div class="kpi-card kpi-{color}"><div class="kpi-label">{label}</div>'
+    st.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div>'
                 f'<div class="kpi-value" style="margin-top:4px">{value}</div>{sub_h}{prog}</div>',
                 unsafe_allow_html=True)
 
 
 def badge(text, color='green'):
-    cfg = {'green': ('#22c55e', 'rgba(34,197,94,.15)'), 'yellow': ('#f59e0b', 'rgba(245,158,11,.15)'),
-           'red': ('#ef4444', 'rgba(239,68,68,.15)'), 'blue': ('#3b82f6', 'rgba(59,130,246,.15)')}
+    cfg = {'green':  ('#16A34A', 'rgba(22,163,74,.10)'),
+           'yellow': ('#B45309', 'rgba(180,83,9,.10)'),
+           'red':    ('#DC2626', 'rgba(220,38,38,.10)'),
+           'blue':   ('#1D4ED8', 'rgba(29,78,216,.10)')}
     tc, bg = cfg.get(color, cfg['blue'])
-    return f'<span style="background:{bg};color:{tc};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">{text}</span>'
+    return (f'<span style="background:{bg};color:{tc};padding:2px 9px;'
+            f'border-radius:20px;font-size:11px;font-weight:500;'
+            f'letter-spacing:.1px;white-space:nowrap">{text}</span>')
 
 
 def pct_badge(actual, plan, invert=False):
@@ -146,27 +194,23 @@ def pct_badge(actual, plan, invert=False):
 
 
 def _prog_html(progress, color, plan_label=''):
-    """
-    Wrapper div (margin-top:auto) chứa label row + progress bar.
-    Tách wrapper khỏi .prog-bg để padding không bị overflow:hidden clip.
-    """
     if progress is None:
         return ''
-    pct = min(progress * 100, 100)
+    pct    = min(progress * 100, 100)
     fill_c = C.get(color, C['accent'])
-    clr = '#22c55e' if pct >= 90 else ('#f59e0b' if pct >= 50 else '#ef4444')
+    clr    = '#22c55e' if pct >= 90 else ('#f59e0b' if pct >= 50 else '#ef4444')
     label_row = (
         f'<div style="display:flex;justify-content:space-between;'
-        f'margin-bottom:3px;font-size:10px;line-height:1.2">'
-        f'<span style="color:#555">{plan_label}</span>'
-        f'<span style="color:{clr};font-weight:600">{pct:.0f}%</span>'
+        f'margin-bottom:4px;font-size:10px;line-height:1.2">'
+        f'<span style="color:#9CA3AF;font-weight:400">{plan_label}</span>'
+        f'<span style="color:{clr};font-weight:500">{pct:.0f}%</span>'
         f'</div>'
     ) if plan_label else (
-        f'<div style="text-align:right;margin-bottom:3px;font-size:10px;'
-        f'color:{clr};font-weight:600">{pct:.0f}%</div>'
+        f'<div style="text-align:right;margin-bottom:4px;font-size:10px;'
+        f'color:{clr};font-weight:500">{pct:.0f}%</div>'
     )
     return (
-        f'<div style="margin-top:auto;padding-top:6px">'   # wrapper: pushes to bottom, không bị clip
+        f'<div style="margin-top:auto;padding-top:8px">'
         f'{label_row}'
         f'<div class="prog-bg"><div class="prog-fill" style="width:{pct:.1f}%;background:{fill_c}"></div></div>'
         f'</div>'
@@ -174,9 +218,23 @@ def _prog_html(progress, color, plan_label=''):
 
 
 def kpi_html(label, value, sub='', color='accent', progress=None, plan_label=''):
-    """Card HTML string — dùng trong kpi_grid()."""
+    """KPI card — pill indicator thay cho border-top màu."""
+    clr = C.get(color, C['accent'])
+    # Pill: nếu có progress → badge % nhỏ ở top-right; nếu không → dot màu
+    if progress is not None:
+        pct     = min(progress * 100, 100)
+        pill_c  = '#16A34A' if pct >= 90 else ('#B45309' if pct >= 50 else '#DC2626')
+        pill_bg = 'rgba(22,163,74,.10)' if pct >= 90 else ('rgba(180,83,9,.10)' if pct >= 50 else 'rgba(220,38,38,.10)')
+        pill    = (f'<span style="position:absolute;top:14px;right:14px;'
+                   f'background:{pill_bg};color:{pill_c};'
+                   f'font-size:10px;font-weight:500;padding:2px 7px;border-radius:20px;line-height:1.4">'
+                   f'{pct:.0f}%</span>')
+    else:
+        pill = (f'<span style="position:absolute;top:16px;right:16px;'
+                f'display:inline-block;width:6px;height:6px;border-radius:50%;'
+                f'background:{clr};opacity:0.45"></span>')
     sub_h = f'<div class="kpi-sub" style="margin-top:3px;line-height:1.4">{sub}</div>' if sub else ''
-    return (f'<div class="kpi-card kpi-{color}">'
+    return (f'<div class="kpi-card">{pill}'
             f'<div class="kpi-label">{label}</div>'
             f'<div class="kpi-value" style="margin-top:4px">{value}</div>'
             f'{sub_h}{_prog_html(progress, color, plan_label)}</div>')
@@ -189,16 +247,20 @@ def kpi2_html(label, v1, v1_sub, v2, v2_sub, color='accent',
     s2 = f'<div class="kpi-sub" style="margin-top:3px;line-height:1.3">{v2_sub}</div>' if v2_sub else ''
     p1 = _prog_html(progress,  color, plan_label)
     p2 = _prog_html(progress2, color, plan_label2)
+    clr  = C.get(color, C['accent'])
+    dot  = (f'<span style="position:absolute;top:16px;right:16px;'
+            f'display:inline-block;width:6px;height:6px;border-radius:50%;'
+            f'background:{clr};opacity:0.45"></span>')
     return (
-        f'<div class="kpi-card kpi-{color}">'
+        f'<div class="kpi-card">{dot}'
         f'<div class="kpi-label">{label}</div>'
         f'<div style="display:flex;flex:1;margin-top:6px">'
         f'  <div style="flex:1;min-width:0;padding-right:10px;display:flex;flex-direction:column">'
         f'    <div class="kpi-value" style="font-size:18px">{v1}</div>'
         f'    {s1}{p1}'
         f'  </div>'
-        f'  <div style="flex:1;min-width:0;padding-left:10px;border-left:1px solid #2A2A2A;display:flex;flex-direction:column">'
-        f'    <div class="kpi-value" style="font-size:18px;color:#7A7670">{v2}</div>'
+        f'  <div style="flex:1;min-width:0;padding-left:10px;border-left:1px solid rgba(0,0,0,0.07);display:flex;flex-direction:column">'
+        f'    <div class="kpi-value" style="font-size:18px;color:#6B7280">{v2}</div>'
         f'    {s2}{p2}'
         f'  </div>'
         f'</div>'
@@ -217,21 +279,21 @@ def kpi_grid(*card_htmls, cols=None):
 
 
 def insight(html, color='accent'):
-    cfg = {'accent': ('#6c63ff', 'rgba(108,99,255,.08)'),
-           'green':  ('#22c55e', 'rgba(34,197,94,.08)'),
-           'yellow': ('#f59e0b', 'rgba(245,158,11,.08)')}
+    cfg = {'accent': ('#92400E', '#FEF3C7'),
+           'green':  ('#16A34A', '#DCFCE7'),
+           'yellow': ('#B45309', '#FEF3C7')}
     bc, bg = cfg.get(color, cfg['accent'])
     st.markdown(f'<div style="background:{bg};border-left:3px solid {bc};border-radius:0 8px 8px 0;'
-                f'padding:12px 16px;margin-top:14px;font-size:13px;color:#7A7670;line-height:1.6">{html}</div>',
+                f'padding:12px 16px;margin-top:14px;font-size:13px;color:#334155;line-height:1.7">{html}</div>',
                 unsafe_allow_html=True)
 
 
 def section(title, dot='accent'):
     dot_c = C.get(dot, C['accent'])
-    st.markdown(f'<div style="font-size:14px;font-weight:600;color:#E8E2D9;margin:18px 0 10px;'
+    st.markdown(f'<div style="font-size:13.5px;font-weight:500;color:#1A1A1A;margin:18px 0 10px;'
                 f'display:flex;align-items:center;gap:8px">'
-                f'<span style="width:8px;height:8px;border-radius:50%;background:{dot_c};display:inline-block">'
-                f'</span>{title}</div>', unsafe_allow_html=True)
+                f'<span style="width:7px;height:7px;border-radius:50%;background:{dot_c};'
+                f'opacity:0.7;display:inline-block"></span>{title}</div>', unsafe_allow_html=True)
 
 
 def rank_badge(n):
@@ -239,7 +301,7 @@ def rank_badge(n):
         return ('<span style="background:rgba(245,158,11,.2);color:#f59e0b;width:24px;height:24px;'
                 'border-radius:50%;display:inline-flex;align-items:center;justify-content:center;'
                 'font-size:11px;font-weight:700">1</span>')
-    return (f'<span style="background:#1E1E1E;color:#7A7670;width:24px;height:24px;'
+    return (f'<span style="background:#F1F5F9;color:#64748B;width:24px;height:24px;'
             f'border-radius:50%;display:inline-flex;align-items:center;justify-content:center;'
             f'font-size:11px">{n}</span>')
 
@@ -247,26 +309,32 @@ def rank_badge(n):
 def html_table(headers, rows, aligns=None):
     if aligns is None:
         aligns = ['left'] + ['right'] * (len(headers) - 1)
-    ths = ''.join(f'<th style="color:#7A7670;font-size:11px;text-transform:uppercase;padding:8px 10px;'
-                  f'text-align:{aligns[i]};border-bottom:1px solid #2A2A2A">{h}</th>'
-                  for i, h in enumerate(headers))
+    ths = ''.join(
+        f'<th style="color:#FFF5EC;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;'
+        f'padding:10px 12px;text-align:{aligns[i]};border-bottom:none;font-weight:500">{h}</th>'
+        for i, h in enumerate(headers)
+    )
     trs = ''.join(
         '<tr>' + ''.join(
-            f'<td style="padding:9px 10px;text-align:{aligns[i]};border-bottom:1px solid rgba(42,42,42,.5)">{cell}</td>'
+            f'<td style="padding:10px 12px;text-align:{aligns[i]};'
+            f'border-bottom:1px solid rgba(0,0,0,0.04);font-weight:400">{cell}</td>'
             for i, cell in enumerate(row)
         ) + '</tr>'
         for row in rows
     )
-    st.markdown(f'<table style="width:100%;border-collapse:collapse;font-size:13px">'
-                f'<thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table>',
-                unsafe_allow_html=True)
+    st.markdown(
+        f'<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        f'<thead><tr style="background:#4A2000">{ths}</tr></thead>'
+        f'<tbody>{trs}</tbody></table>',
+        unsafe_allow_html=True,
+    )
 
 
 def pva_table(rows):
     """rows = [(label, plan_val, actual_val, fmt_fn, badge_html)]"""
     ths = ''.join(
-        f'<th style="color:#7A7670;font-size:11px;text-transform:uppercase;padding:8px 10px;'
-        f'text-align:{a};border-bottom:1px solid #2A2A2A">{h}</th>'
+        f'<th style="color:#64748B;font-size:11px;text-transform:uppercase;padding:8px 10px;'
+        f'text-align:{a};border-bottom:1px solid #E2E8F0">{h}</th>'
         for h, a in [('Metric', 'left'), ('Plan', 'right'), ('Actual', 'right'), ('% vs Plan', 'center')]
     )
     trs = ''
@@ -282,26 +350,72 @@ def pva_table(rows):
                 unsafe_allow_html=True)
 
 
-def donut(labels, values, colors_list):
+def donut(labels, values, colors_list, custom_text=None, show_pct=False, center_text=None):
+    """
+    show_pct=True  → hiện % trong từng slice (trắng, radial), bỏ custom_text.
+    center_text    → text ở giữa donut (thường là tổng).
+    """
+    if show_pct:
+        textinfo = 'percent'
+        textpos  = 'inside'
+        tfont    = dict(size=12, color='#FFFFFF')
+    elif custom_text:
+        textinfo = 'text'
+        textpos  = 'outside'
+        tfont    = dict(size=11, color='#0F172A')
+    else:
+        textinfo = 'none'
+        textpos  = 'none'
+        tfont    = dict(size=11, color='#0F172A')
+
     fig = go.Figure(go.Pie(
-        labels=labels, values=values, hole=0.65,
-        marker=dict(colors=colors_list, line=dict(color='#141414', width=3)),
-        hovertemplate='%{label}<br>%{value:,.0f}₫ (%{percent})<extra></extra>',
+        labels=labels,
+        values=values,
+        hole=0.62,
+        marker=dict(colors=colors_list, line=dict(color='#FFFFFF', width=3)),
+        text=custom_text if not show_pct else None,
+        textinfo=textinfo,
+        textposition=textpos,
+        insidetextorientation='radial',
+        textfont=tfont,
+        hovertemplate='<b>%{label}</b><br>%{text}<br>%{percent}<extra></extra>' if custom_text and not show_pct
+                      else '<b>%{label}</b><br>%{value:,.0f} · %{percent}<extra></extra>',
     ))
-    fig.update_layout(height=240, showlegend=False, paper_bgcolor='rgba(0,0,0,0)',
-                      margin=dict(l=10, r=10, t=10, b=10), font=dict(color='#E8E2D9'))
+    annotations = []
+    if center_text:
+        annotations.append(dict(
+            text=center_text, x=0.5, y=0.5,
+            font=dict(size=13, color='#0F172A'),
+            showarrow=False,
+        ))
+    fig.update_layout(
+        height=260, showlegend=False,
+        paper_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=20, r=20, t=20, b=20),
+        font=dict(color='#0F172A', size=12),
+        annotations=annotations,
+    )
     return fig
 
 
-def chart_legend(labels, value_strs, colors_list):
-    items = ''.join(
-        f'<span style="display:inline-flex;align-items:center;gap:5px">'
-        f'<span style="width:10px;height:10px;border-radius:50%;background:{c}"></span>'
-        f'{l} · {v}</span>'
-        for l, v, c in zip(labels, value_strs, colors_list)
+def chart_legend(labels, value_strs, colors_list, pct_values=None):
+    items = []
+    for i, (l, v, c) in enumerate(zip(labels, value_strs, colors_list)):
+        pct_str = f'<span style="color:#94A3B8;font-size:11px"> · {pct_values[i]:.1f}%</span>' \
+                  if pct_values else ''
+        items.append(
+            f'<span style="display:inline-flex;align-items:center;gap:5px">'
+            f'<span style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:{c}"></span>'
+            f'<span style="color:#0F172A;font-weight:500">{l}</span>'
+            f'<span style="color:#64748B"> · {v}</span>{pct_str}'
+            f'</span>'
+        )
+    st.markdown(
+        f'<div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;'
+        f'font-size:12px;margin-top:12px;line-height:1.8">'
+        + ''.join(items) + '</div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(f'<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;'
-                f'font-size:12px;color:#7A7670;margin-top:10px">{items}</div>', unsafe_allow_html=True)
 
 
 def kpi2(label, v1, v1_sub, v2, v2_sub, color="accent", progress=None):
@@ -317,7 +431,7 @@ def kpi2(label, v1, v1_sub, v2, v2_sub, color="accent", progress=None):
         f'<div class="kpi-label">{label}</div>'
         f'<div class="kpi-value" style="font-size:17px;margin-top:3px">{v1}</div>'
         f'{s1}'
-        f'<div class="kpi-value" style="font-size:17px;color:#7A7670">{v2}</div>'
+        f'<div class="kpi-value" style="font-size:17px;color:#64748B">{v2}</div>'
         f'{s2}{prog}</div>',
         unsafe_allow_html=True
     )
@@ -334,8 +448,8 @@ def date_range_banner(dr):
     e = dr['end'].strftime('%d/%m/%Y')
     days = dr.get('days', '—')
     st.markdown(
-        f'<div style="color:#7A7670;font-size:13px;margin-bottom:16px">'
-        f'📅 Dữ liệu: <strong style="color:#E8E2D9">{s} – {e}</strong> · {days} ngày</div>',
+        f'<div style="color:#64748B;font-size:13px;margin-bottom:16px">'
+        f'📅 Dữ liệu: <strong style="color:#0F172A">{s} – {e}</strong> · {days} ngày</div>',
         unsafe_allow_html=True
     )
 
@@ -365,7 +479,7 @@ def editable_insight(tab_key, auto_text, color='accent'):
 
     # Section header
     st.markdown(
-        f'<div style="font-size:14px;font-weight:600;color:#E8E2D9;margin:28px 0 10px;'
+        f'<div style="font-size:14px;font-weight:600;color:#0F172A;margin:28px 0 10px;'
         f'display:flex;align-items:center;gap:8px">'
         f'<span style="width:8px;height:8px;border-radius:50%;background:{dot_c};'
         f'display:inline-block"></span>📝 Nhận xét tổng hợp</div>',
@@ -381,7 +495,7 @@ def editable_insight(tab_key, auto_text, color='accent'):
                .replace('\n', '<br>'))
     st.markdown(
         f'<div style="background:{bg};border-left:3px solid {bc};border-radius:0 8px 8px 0;'
-        f'padding:14px 18px;font-size:13px;color:#B8B0A8;line-height:1.8">{escaped}</div>',
+        f'padding:14px 18px;font-size:13px;color:#0F172A;line-height:1.8">{escaped}</div>',
         unsafe_allow_html=True
     )
 
@@ -405,7 +519,7 @@ def editable_insight(tab_key, auto_text, color='accent'):
         # PIN verification
         c_lbl, c_pin, c_ok, c_x = st.columns([1, 4, 1, 1])
         with c_lbl:
-            st.markdown('<div style="padding-top:8px;font-size:13px;color:#7A7670">🔑 PIN:</div>',
+            st.markdown('<div style="padding-top:8px;font-size:13px;color:#64748B">🔑 PIN:</div>',
                         unsafe_allow_html=True)
         with c_pin:
             pin_val = st.text_input('', placeholder='Nhập PIN...', type='password',
@@ -469,7 +583,7 @@ def delta_badge(current, prev):
     """Badge so sánh MoM — green nếu tăng, red nếu giảm."""
     if not prev:
         return badge('—', 'blue')
-    d = (current - prev) / abs(prev) * 100
+    d     = (current - prev) / abs(prev) * 100
     color = 'green' if d >= 0 else 'red'
     sign  = '+' if d >= 0 else ''
     return badge(f'{sign}{d:.1f}%', color)
@@ -488,6 +602,21 @@ def spend_badge(pct):
     if pct >= 90: return badge(f'{pct:.0f}%', 'green')
     if pct >= 50: return badge(f'{pct:.0f}%', 'yellow')
     return badge(f'{pct:.0f}%', 'red')
+
+
+def mini_bar_cell(pct, color=None, max_pct=100):
+    """Inline mini bar + % label — dùng trong cột Share của bảng."""
+    bar_c = color or C['accent']
+    w     = min(max(float(pct or 0), 0), 100) / max_pct * 100
+    return (
+        f'<div style="display:flex;align-items:center;gap:8px;min-width:90px">'
+        f'<div style="flex:1;background:#EDEBE6;border-radius:3px;height:5px;overflow:hidden;min-width:40px">'
+        f'<div style="width:{w:.1f}%;background:{bar_c};height:100%;border-radius:3px"></div>'
+        f'</div>'
+        f'<span style="font-size:11px;color:#6B7280;min-width:34px;text-align:right;font-weight:400">'
+        f'{float(pct or 0):.1f}%</span>'
+        f'</div>'
+    )
 
 
 def drive_list_files():

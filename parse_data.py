@@ -13,7 +13,7 @@ BRANDS = [
     'KANTAN', 'FNOS', 'QEM',
 ]
 
-_PREV_KEYWORDS = ('prev', 'apr', 'old', 'last', 'trước', 'truoc', 'march', 'mar',
+_PREV_KEYWORDS = ('prev', ' pre', 'apr', 'may', 'old', 'last', 'trước', 'truoc', 'march', 'mar',
                   'jan', 'feb', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec')
 
 
@@ -59,6 +59,16 @@ def extract_format(ad_name):
     return 'Other'
 
 
+def extract_promotion(ad_name):
+    """Extract promotion name from ad name — last segment after ' - ', strip copy/version suffixes."""
+    parts = str(ad_name).split(' - ')
+    if len(parts) >= 4:
+        promo = parts[-1].strip()
+        promo = re.sub(r'\s*[–\-]\s*(copy|v\d+)\s*$', '', promo, flags=re.IGNORECASE).strip()
+        return promo if promo else 'Other'
+    return 'Other'
+
+
 def _is_prev_sheet(name):
     n = name.lower()
     return any(kw in n for kw in _PREV_KEYWORDS)
@@ -84,11 +94,13 @@ def _detect_sheets(wb):
         rows = list(ws.iter_rows(min_row=1, max_row=12, values_only=True))
         flat = ' '.join(str(v).lower() for r in rows for v in r if v)
 
-        # Media Plan
-        if roles['media_plan'] is None:
-            if 'media plan' in flat or ('budget' in flat and 'channel' in flat and 'kpi' in flat):
+        # Media Plan — must have channel+budget structure; prefer sheet with GMV column
+        is_media_plan = (('media plan' in flat and 'channel' in flat and 'budget' in flat) or
+                         ('budget' in flat and 'channel' in flat and 'kpi' in flat))
+        if is_media_plan:
+            if roles['media_plan'] is None or 'gmv' in flat:
                 roles['media_plan'] = sname
-                continue
+            continue
 
         # FB raw: has "ad name" and "amount spent"
         if 'ad name' in flat and 'amount spent' in flat:
@@ -154,21 +166,55 @@ def parse_media_plan(wb, sheet_name):
             'gmv max':             'Shopee GMV Max',
             'shopee':              'Shopee GMV Max',
         }
+
+        # Detect columns from BOTH header row and sub-header row (row below)
+        hdr = [str(v).lower().strip() if v else '' for v in rows[header_row]]
+        sub = [str(v).lower().strip() if v else ''
+               for v in rows[header_row + 1]] if header_row + 1 < len(rows) else []
+        # Merge: sub-header takes priority for metric columns
+        combined = [(sub[i] if i < len(sub) and sub[i] else hdr[i])
+                    for i in range(max(len(hdr), len(sub)))]
+
+        def _find_col(keywords, default):
+            for i, h in enumerate(combined):
+                if any(kw in h for kw in keywords):
+                    return i
+            return default
+
+        budget_col = _find_col(['budget', 'งบ'], 6)
+        kpi_col    = _find_col(['inventory buying', 'inventory'], 8)   # target quantity per channel
+        gmv_col    = _find_col(['gmv'], 22)                            # GMV plan (newer sheets)
+        pdp_col    = _find_col(['pdp/atc', 'pdp'], 21)                 # conversion KPI
+
         for row in rows[header_row + 1: header_row + 15]:
             for i, v in enumerate(row):
                 if not v:
                     continue
                 vl = str(v).lower().strip()
                 for key, label in channel_map.items():
-                    if key in vl and label not in result['channels']:
-                        budget = _n(row[6]) if len(row) > 6 else 0
-                        kpi    = _n(row[11]) if len(row) > 11 else 0
-                        gmv    = _n(row[22]) if len(row) > 22 else 0
+                    if key in vl:
+                        budget = _n(row[budget_col]) if len(row) > budget_col else 0
+                        gmv    = _n(row[gmv_col])    if len(row) > gmv_col    else 0
+                        if label in ('FB Catalog Sale', 'FB Retargeting'):
+                            kpi = _n(row[pdp_col]) if len(row) > pdp_col else _n(row[kpi_col]) if len(row) > kpi_col else 0
+                        else:
+                            kpi = _n(row[kpi_col]) if len(row) > kpi_col else 0
                         if budget > 0:
-                            result['channels'][label] = {
-                                'budget': budget, 'kpi': kpi, 'gmv': gmv,
-                            }
+                            kpi_orders = _n(row[kpi_col]) if len(row) > kpi_col else 0   # col 8 always
+                            kpi_funnel = _n(row[pdp_col]) if len(row) > pdp_col else kpi_orders  # col 21 if available
+                            existing = result['channels'].get(label)
+                            if not existing or (existing['gmv'] == 0 and gmv > 0):
+                                result['channels'][label] = {
+                                    'budget':     budget,
+                                    'kpi':        kpi_orders,  # col 8 — purchase/impression target for KPI cards
+                                    'kpi_funnel': kpi_funnel,  # col 21 — funnel total for Plan vs Actual table
+                                    'gmv':        gmv,
+                                }
                         break
+
+    # Fallback: compute total_budget from channel sum if not parsed directly
+    if result['total_budget'] == 0 and result['channels']:
+        result['total_budget'] = sum(ch['budget'] for ch in result['channels'].values())
 
     return result
 
@@ -232,6 +278,7 @@ def _parse_fb_sheet(wb, sheet_name):
     if 'Ad Name' in df.columns:
         df['Brand']      = df['Ad Name'].apply(extract_brand)
         df['Format']     = df['Ad Name'].apply(extract_format)
+        df['Promotion']  = df['Ad Name'].apply(extract_promotion)
     if 'Campaign' in df.columns:
         df['Camp Type']  = df['Campaign'].apply(classify_campaign)
 
@@ -461,6 +508,22 @@ def _agg_conversion(df_fb):
     return result
 
 
+def _agg_shopee_overall(df):
+    if df.empty:
+        return {'spend': 0, 'orders': 0, 'gmv': 0, 'roas': 0, 'clicks': 0, 'impressions': 0}
+    spend  = df['spend'].sum()  if 'spend'  in df.columns else 0
+    orders = df['orders'].sum() if 'orders' in df.columns else 0
+    gmv    = df['gmv'].sum()    if 'gmv'    in df.columns else 0
+    return {
+        'spend':       spend,
+        'orders':      orders,
+        'gmv':         gmv,
+        'roas':        gmv / spend if spend > 0 else 0,
+        'clicks':      df['clicks'].sum()      if 'clicks'      in df.columns else 0,
+        'impressions': df['impressions'].sum() if 'impressions' in df.columns else 0,
+    }
+
+
 def _agg_shopee_brands(df_prod):
     """Aggregate Shopee product data by brand."""
     if df_prod.empty or 'brand' not in df_prod.columns:
@@ -472,6 +535,26 @@ def _agg_shopee_brands(df_prod):
     ).reset_index()
     agg['roas'] = agg.apply(lambda r: r['gmv'] / r['spend'] if r['spend'] > 0 else 0, axis=1)
     return agg.sort_values('gmv', ascending=False).to_dict('records')
+
+
+def _agg_shopee_products(df, top_n=25):
+    """Aggregate Shopee data by product/campaign name for MoM comparison."""
+    if df.empty or 'name' not in df.columns:
+        return []
+    num_cols = [c for c in ['gmv', 'spend', 'orders', 'clicks', 'impressions'] if c in df.columns]
+    if not num_cols:
+        return []
+    agg = df.groupby('name')[num_cols].sum().reset_index()
+    if 'gmv' in agg.columns and 'spend' in agg.columns:
+        agg['roas'] = agg.apply(lambda r: r['gmv'] / r['spend'] if r['spend'] > 0 else 0, axis=1)
+    else:
+        agg['roas'] = 0
+    if 'brand' in df.columns:
+        brand_map = df.groupby('name')['brand'].first()
+        agg['brand'] = agg['name'].map(brand_map).fillna('OTHER')
+    else:
+        agg['brand'] = 'OTHER'
+    return agg.sort_values('gmv', ascending=False).head(top_n).to_dict('records')
 
 
 def _agg_sale_summary(df_fb, df_shopeeamp):
@@ -500,13 +583,20 @@ def _agg_sale_summary(df_fb, df_shopeeamp):
     for ch in result['channels']:
         ch['roas'] = ch['gmv'] / ch['spend'] if ch['spend'] > 0 else 0
 
+    conv_spend = sum(c['spend'] for c in result['channels'])
+    total_gmv  = sum(c['gmv']   for c in result['channels'])
+
+    # spend_all = all FB campaigns (branding + conversion) + Shopee
+    fb_all_spend = df_fb['Spend'].sum() if not df_fb.empty and 'Spend' in df_fb.columns else 0
+    spend_all    = fb_all_spend + shopee_spend
+
     result['total'] = {
-        'spend':  sum(c['spend']  for c in result['channels']),
-        'orders': sum(c['orders'] for c in result['channels']),
-        'gmv':    sum(c['gmv']    for c in result['channels']),
+        'spend':     conv_spend,
+        'spend_all': spend_all,
+        'orders':    sum(c['orders'] for c in result['channels']),
+        'gmv':       total_gmv,
+        'roas':      total_gmv / conv_spend if conv_spend > 0 else 0,
     }
-    total_spend = result['total']['spend']
-    result['total']['roas'] = result['total']['gmv'] / total_spend if total_spend > 0 else 0
     return result
 
 
@@ -535,12 +625,18 @@ def _mom_from_raw(df_fb_prev, df_shopee_prev):
     for ch in channels:
         ch['roas'] = ch['gmv'] / ch['spend'] if ch['spend'] > 0 else 0
 
-    total_spend = sum(c['spend'] for c in channels)
+    conv_spend = sum(c['spend'] for c in channels)
+    total_gmv  = sum(c['gmv']   for c in channels)
+
+    fb_all_spend_prev = df_fb_prev['Spend'].sum() if not df_fb_prev.empty and 'Spend' in df_fb_prev.columns else 0
+    spend_all_prev    = fb_all_spend_prev + sp
+
     total = {
-        'spend':  total_spend,
-        'orders': sum(c['orders'] for c in channels),
-        'gmv':    sum(c['gmv']    for c in channels),
-        'roas':   sum(c['gmv'] for c in channels) / total_spend if total_spend > 0 else 0,
+        'spend':     conv_spend,
+        'spend_all': spend_all_prev,
+        'orders':    sum(c['orders'] for c in channels),
+        'gmv':       total_gmv,
+        'roas':      total_gmv / conv_spend if conv_spend > 0 else 0,
     }
     return {'channels': channels, 'total': total}
 
@@ -595,23 +691,9 @@ def parse_all(file_bytes):
                 'roas':        row.get('roas', 0),
             })
 
-    # Shopee top products
-    shopee_top_products = []
-    if not df_shopee_p.empty and 'product' in df_shopee_p.columns:
-        for _, row in df_shopee_p.sort_values('gmv', ascending=False).head(25).iterrows():
-            shopee_top_products.append({
-                'product':     str(row.get('product', '')),
-                'brand':       str(row.get('brand', 'OTHER')),
-                'impressions': row.get('impressions', 0),
-                'clicks':      row.get('clicks', 0),
-                'ctr':         row.get('ctr', 0),
-                'orders':      row.get('orders', 0),
-                'spend':       row.get('spend', 0),
-                'gmv':         row.get('gmv', 0),
-                'roas':        row.get('roas', 0),
-            })
-
-    shopee_brands = _agg_shopee_brands(df_shopee_p)
+    shopee_brands        = _agg_shopee_brands(df_shopee_p)
+    shopee_products_cur  = _agg_shopee_products(df_shopee)
+    shopee_products_prev = _agg_shopee_products(df_shopeep)
 
     # MoM funnel rates from FB raw
     mom_funnel = {}
@@ -647,21 +729,12 @@ def parse_all(file_bytes):
         'branding':   branding,
         'conversion': {
             'fb':              fb_conv,
-            'shopee_overall':  {
-                'spend':  df_shopee['spend'].sum()  if not df_shopee.empty and 'spend'  in df_shopee.columns else 0,
-                'orders': df_shopee['orders'].sum() if not df_shopee.empty and 'orders' in df_shopee.columns else 0,
-                'gmv':    df_shopee['gmv'].sum()    if not df_shopee.empty and 'gmv'    in df_shopee.columns else 0,
-                'roas':   0,
-                'clicks': df_shopee['clicks'].sum() if not df_shopee.empty and 'clicks' in df_shopee.columns else 0,
-                'impressions': df_shopee['impressions'].sum() if not df_shopee.empty and 'impressions' in df_shopee.columns else 0,
-                'ctr':    0,
-            },
+            'shopee_overall':  _agg_shopee_overall(df_shopee),
             'mom':             mom_funnel,
-            'by_promotion':    [],
-            'by_brand':        [],
             'shopee_campaigns':    shopee_campaigns,
-            'shopee_top_products': shopee_top_products,
             'shopee_brands':       shopee_brands,
+            'shopee_products_cur':  shopee_products_cur,
+            'shopee_products_prev': shopee_products_prev,
         },
         'fb_raw':     df_fb,
         'date_range': _detect_date_range(df_fb),
@@ -695,14 +768,19 @@ def _build_overall_table(plan, sale, branding, fb_conv):
             actual_spend = shopee_sale.get('spend', 0)
             actual_kpi   = shopee_sale.get('orders', 0)
             kpi_plan     = p.get('kpi', 0)
+            roas_actual  = shopee_sale.get('roas', 0)
         elif label in ('FB Catalog Sale', 'FB Retargeting'):
             actual_spend = actual_data.get('spend', 0)
-            actual_kpi   = actual_data.get('purchases', 0)
-            kpi_plan     = p.get('kpi', 0)
+            actual_kpi   = (actual_data.get('pdp_views', 0) + actual_data.get('atc', 0) +
+                            actual_data.get('checkouts', 0) + actual_data.get('purchases', 0))
+            kpi_plan     = p.get('kpi_funnel', p.get('kpi', 0))
+            gmv          = actual_data.get('gmv', 0)
+            roas_actual  = gmv / actual_spend if actual_spend > 0 else 0
         else:
             actual_spend = actual_data.get('spend', 0)
             actual_kpi   = actual_data.get('impressions', actual_data.get('reach', actual_data.get('clicks', 0)))
             kpi_plan     = p.get('kpi', 0)
+            roas_actual  = 0
 
         rows.append({
             'channel':        label,
@@ -712,7 +790,6 @@ def _build_overall_table(plan, sale, branding, fb_conv):
             'kpi_plan':       kpi_plan,
             'kpi_actual':     actual_kpi,
             'kpi_pct':        actual_kpi / kpi_plan if kpi_plan > 0 else 0,
-            'cpr_plan':       0,
-            'cpr_actual':     0,
+            'roas_actual':    roas_actual,
         })
     return rows

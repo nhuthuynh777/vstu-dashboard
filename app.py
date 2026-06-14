@@ -67,39 +67,31 @@ with st.sidebar:
         data_bytes    = st.session_state['_data_bytes']
         selected_name = st.session_state.get('_data_name', selected_name or '')
 
-    # 2. Upload trực tiếp — PIN protected
+    # 2. Upload trực tiếp (session only) hoặc hướng dẫn upload lên Drive
     st.markdown('<hr style="border:none;border-top:0.5px solid rgba(0,0,0,0.08);margin:16px 0">', unsafe_allow_html=True)
     st.markdown('<div style="font-size:11px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Upload report</div>', unsafe_allow_html=True)
 
-    if not st.session_state.get('_upload_auth'):
-        pin_input = st.text_input('PIN', placeholder='Nhập PIN để upload...',
-                                  type='password', key='_upload_pin',
-                                  label_visibility='collapsed')
-        if st.button('Xác nhận PIN', key='_upload_pin_btn', use_container_width=True):
-            if pin_input == _get_pin():
-                st.session_state['_upload_auth'] = True
-                st.rerun()
-            else:
-                st.error('PIN không đúng.')
-    else:
-        uploaded = st.file_uploader(
-            "Chọn file (.xlsx)", type=['xlsx'], key='_file_upload',
-            label_visibility='collapsed',
-        )
-        if uploaded:
-            raw           = uploaded.read()
-            data_bytes    = raw
-            selected_name = uploaded.name
-            st.session_state['_data_bytes'] = raw
-            st.session_state['_data_name']  = uploaded.name
-            st.cache_data.clear()
-            if drive_configured:
-                with st.spinner("Lưu lên Drive..."):
-                    drive_upload_named(raw, uploaded.name)
+    uploaded = st.file_uploader(
+        "Chọn file (.xlsx)", type=['xlsx'], key='_file_upload',
+        label_visibility='collapsed',
+    )
+    if uploaded:
+        raw           = uploaded.read()
+        data_bytes    = raw
+        selected_name = uploaded.name
+        st.session_state['_data_bytes'] = raw
+        st.session_state['_data_name']  = uploaded.name
+        st.cache_data.clear()
 
-        if st.button('Khoá upload', key='_upload_logout', use_container_width=True):
-            st.session_state['_upload_auth'] = False
-            st.rerun()
+    if not drive_files:
+        st.markdown(
+            '<div style="font-size:11px;color:#9CA3AF;margin-top:8px;line-height:1.5">'
+            '💡 Để không phải upload lại sau F5:<br>'
+            'Upload file xlsx lên <a href="https://drive.google.com/drive/folders/1OL2FEbbNyRacgBzmtUgGHoxoHqxsn126" '
+            'target="_blank" style="color:#6366f1">Google Drive folder</a> này.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
     # File info
     if selected_name:

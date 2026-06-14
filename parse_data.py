@@ -334,32 +334,60 @@ def _parse_tiktok_sheet(wb, sheet_name):
     if header_idx is None:
         return pd.DataFrame()
 
-    headers = [str(h).strip() if h else f'col_{i}' for i, h in enumerate(rows[header_idx])]
+    # Dedup headers to avoid duplicate column issues
+    raw_headers = [str(h).strip() if h else f'col_{i}' for i, h in enumerate(rows[header_idx])]
+    seen = {}
+    headers = []
+    for h in raw_headers:
+        if h in seen:
+            seen[h] += 1
+            headers.append(f'{h}_{seen[h]}')
+        else:
+            seen[h] = 0
+            headers.append(h)
+
     data = [list(r) for r in rows[header_idx + 1:] if any(v is not None for v in r)]
+    if not data:
+        return pd.DataFrame()
     df = pd.DataFrame(data, columns=headers)
 
     col_map = {}
+    mapped = set()
     for col in df.columns:
         cl = col.lower().strip()
-        if 'ad name' in cl:                               col_map[col] = 'Ad Name'
-        elif 'campaign name' in cl:                       col_map[col] = 'Campaign'
-        elif 'ad group' in cl:                            col_map[col] = 'Ad Group'
-        elif cl == 'impressions' or cl == 'impression':   col_map[col] = 'Impressions'
-        elif cl == 'clicks' or cl == 'click':             col_map[col] = 'Clicks'
-        elif cl == 'ctr':                                 col_map[col] = 'CTR'
-        elif cl in ('cost', 'spend', 'total cost'):       col_map[col] = 'Spend'
-        elif 'video view' in cl or cl in ('vv', '2-second video views', '6-second video views'):
-                                                          col_map[col] = 'VideoViews'
-        elif cl == 'reach':                               col_map[col] = 'Reach'
-        elif cl == 'frequency':                           col_map[col] = 'Frequency'
-        elif 'conversion' in cl and 'cost' not in cl:    col_map[col] = 'Conversions'
-        elif 'campaign type' in cl or 'objective' in cl: col_map[col] = 'Camp Type'
+        if 'ad name' in cl and 'name' not in mapped:
+            col_map[col] = 'Ad Name';      mapped.add('name')
+        elif 'campaign name' in cl and 'campaign' not in mapped:
+            col_map[col] = 'Campaign';     mapped.add('campaign')
+        elif 'ad group' in cl and 'adgroup' not in mapped:
+            col_map[col] = 'Ad Group';     mapped.add('adgroup')
+        elif cl in ('impressions', 'impression') and 'impressions' not in mapped:
+            col_map[col] = 'Impressions';  mapped.add('impressions')
+        elif cl in ('clicks', 'click') and 'clicks' not in mapped:
+            col_map[col] = 'Clicks';       mapped.add('clicks')
+        elif cl == 'ctr' and 'ctr' not in mapped:
+            col_map[col] = 'CTR';          mapped.add('ctr')
+        elif cl in ('cost', 'spend', 'total cost') and 'spend' not in mapped:
+            col_map[col] = 'Spend';        mapped.add('spend')
+        elif ('video view' in cl or cl in ('vv', '2-second video views', '6-second video views')) and 'vv' not in mapped:
+            col_map[col] = 'VideoViews';   mapped.add('vv')
+        elif cl == 'reach' and 'reach' not in mapped:
+            col_map[col] = 'Reach';        mapped.add('reach')
+        elif cl == 'frequency' and 'frequency' not in mapped:
+            col_map[col] = 'Frequency';    mapped.add('frequency')
+        elif 'conversion' in cl and 'cost' not in cl and 'conversions' not in mapped:
+            col_map[col] = 'Conversions';  mapped.add('conversions')
+        elif ('campaign type' in cl or 'objective' in cl) and 'camptype' not in mapped:
+            col_map[col] = 'Camp Type';    mapped.add('camptype')
 
     df = df.rename(columns=col_map)
 
     for col in ['Spend', 'Impressions', 'Clicks', 'VideoViews', 'Reach', 'Frequency', 'Conversions']:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            s = df[col]
+            if isinstance(s, pd.DataFrame):
+                s = s.iloc[:, 0]
+            df[col] = pd.to_numeric(s, errors='coerce').fillna(0)
 
     if 'Ad Name' in df.columns:
         df['Brand']  = df['Ad Name'].apply(extract_brand)

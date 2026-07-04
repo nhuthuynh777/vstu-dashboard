@@ -763,7 +763,7 @@ def drive_download_by_id(file_id):
 
 
 def drive_upload_named(file_bytes, file_name):
-    """Upload file to Drive folder with specific name."""
+    """Upload or update file in Drive folder. Updates if same name exists (SA can't create new files)."""
     try:
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
@@ -778,9 +778,19 @@ def drive_upload_named(file_bytes, file_name):
         )
         service = build('drive', 'v3', credentials=credentials)
         mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        meta = {'name': file_name, 'parents': [folder_id]}
         media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime)
-        service.files().create(body=meta, media_body=media).execute()
+
+        # Check if file with same name already exists — SA can update but not create
+        existing = service.files().list(
+            q=f"'{folder_id}' in parents and name='{file_name}' and trashed=false",
+            fields='files(id)',
+        ).execute().get('files', [])
+
+        if existing:
+            service.files().update(fileId=existing[0]['id'], media_body=media).execute()
+        else:
+            meta = {'name': file_name, 'parents': [folder_id]}
+            service.files().create(body=meta, media_body=media).execute()
         return True
     except Exception:
         return False

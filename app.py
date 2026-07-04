@@ -82,16 +82,25 @@ with st.sidebar:
         st.session_state['_data_bytes'] = raw
         st.session_state['_data_name']  = uploaded.name
         st.cache_data.clear()
+        if drive_configured:
+            ok = drive_upload_named(raw, uploaded.name)
+            if ok:
+                st.success(f'✅ Đã lưu "{uploaded.name}" lên Drive — sẽ hiện trong dropdown sau F5.')
+                drive_files = drive_list_files()
+            else:
+                st.warning(
+                    '⚠️ Chưa tự upload lên Drive được (SA không có quota tạo file mới). '
+                    'Upload thủ công lên Drive folder để file xuất hiện trong dropdown.',
+                    icon='⚠️',
+                )
 
-    if not drive_files:
-        st.markdown(
-            '<div style="font-size:11px;color:#9CA3AF;margin-top:8px;line-height:1.5">'
-            '💡 Để không phải upload lại sau F5:<br>'
-            'Upload file xlsx lên <a href="https://drive.google.com/drive/folders/1OL2FEbbNyRacgBzmtUgGHoxoHqxsn126" '
-            'target="_blank" style="color:#6366f1">Google Drive folder</a> này.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        '<div style="font-size:11px;color:#9CA3AF;margin-top:8px;line-height:1.5">'
+        '📁 <a href="https://drive.google.com/drive/folders/1OL2FEbbNyRacgBzmtUgGHoxoHqxsn126" '
+        'target="_blank" style="color:#6366f1">Google Drive folder</a> — '
+        'upload xlsx vào đây để file persist sau F5.</div>',
+        unsafe_allow_html=True,
+    )
 
     # File info
     if selected_name:

@@ -858,7 +858,7 @@ def _agg_shopee_products(df, top_n=25):
     return agg.sort_values('gmv', ascending=False).head(top_n).to_dict('records')
 
 
-def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0):
+def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0, tiktok_gmv=0):
     """Compute overall sale performance (for Overview tab)."""
     result = {'channels': [], 'total': {}}
 
@@ -875,7 +875,6 @@ def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0):
     shopee_spend  = df_shopeeamp['spend'].sum()  if not df_shopeeamp.empty and 'spend'  in df_shopeeamp.columns else 0
     shopee_orders = df_shopeeamp['orders'].sum() if not df_shopeeamp.empty and 'orders' in df_shopeeamp.columns else 0
     shopee_gmv    = df_shopeeamp['gmv'].sum()    if not df_shopeeamp.empty and 'gmv'    in df_shopeeamp.columns else 0
-    # Note: df_shopeeamp is the combined Shopee sheet (name col, not campaign col)
     result['channels'].append({
         'channel': 'Shopee', 'spend': shopee_spend,
         'orders': shopee_orders, 'gmv': shopee_gmv,
@@ -884,19 +883,19 @@ def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0):
     for ch in result['channels']:
         ch['roas'] = ch['gmv'] / ch['spend'] if ch['spend'] > 0 else 0
 
-    conv_spend = sum(c['spend'] for c in result['channels'])
-    total_gmv  = sum(c['gmv']   for c in result['channels'])
-
-    # spend_all = all FB campaigns (branding + conversion) + Shopee + TikTok (branding + GMV Max)
+    # spend_all = all FB (branding + conversion) + Shopee + TikTok (branding + GMV Max)
     fb_all_spend = df_fb['Spend'].sum() if not df_fb.empty and 'Spend' in df_fb.columns else 0
     spend_all    = fb_all_spend + shopee_spend + tiktok_spend
 
+    # total_gmv = FB conversion GMV + Shopee GMV + TikTok GMV Max
+    total_gmv = sum(c['gmv'] for c in result['channels']) + tiktok_gmv
+
     result['total'] = {
-        'spend':     conv_spend,
+        'spend':     sum(c['spend'] for c in result['channels']),
         'spend_all': spend_all,
         'orders':    sum(c['orders'] for c in result['channels']),
         'gmv':       total_gmv,
-        'roas':      total_gmv / conv_spend if conv_spend > 0 else 0,
+        'roas':      total_gmv / spend_all if spend_all > 0 else 0,
     }
     return result
 
@@ -981,9 +980,12 @@ def parse_all(file_bytes):
     tt_branding_spend = tiktok['total'].get('spend', 0)
     tt_gmvmax_spend   = (df_tt_gmvmax['Spend_VND'].sum()
                          if not df_tt_gmvmax.empty and 'Spend_VND' in df_tt_gmvmax.columns else 0)
+    tt_gmvmax_gmv     = (df_tt_gmvmax['GMV_VND'].sum()
+                         if not df_tt_gmvmax.empty and 'GMV_VND' in df_tt_gmvmax.columns else 0)
     tt_total_spend    = tt_branding_spend + tt_gmvmax_spend
 
-    sale       = _agg_sale_summary(df_fb, df_shopee, tiktok_spend=tt_total_spend)
+    sale       = _agg_sale_summary(df_fb, df_shopee,
+                                   tiktok_spend=tt_total_spend, tiktok_gmv=tt_gmvmax_gmv)
     sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep)
 
     # Shopee campaign list — each row is one ad/campaign

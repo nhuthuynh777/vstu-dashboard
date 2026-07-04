@@ -858,7 +858,7 @@ def _agg_shopee_products(df, top_n=25):
     return agg.sort_values('gmv', ascending=False).head(top_n).to_dict('records')
 
 
-def _agg_sale_summary(df_fb, df_shopeeamp):
+def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0):
     """Compute overall sale performance (for Overview tab)."""
     result = {'channels': [], 'total': {}}
 
@@ -887,9 +887,9 @@ def _agg_sale_summary(df_fb, df_shopeeamp):
     conv_spend = sum(c['spend'] for c in result['channels'])
     total_gmv  = sum(c['gmv']   for c in result['channels'])
 
-    # spend_all = all FB campaigns (branding + conversion) + Shopee
+    # spend_all = all FB campaigns (branding + conversion) + Shopee + TikTok (branding + GMV Max)
     fb_all_spend = df_fb['Spend'].sum() if not df_fb.empty and 'Spend' in df_fb.columns else 0
-    spend_all    = fb_all_spend + shopee_spend
+    spend_all    = fb_all_spend + shopee_spend + tiktok_spend
 
     result['total'] = {
         'spend':     conv_spend,
@@ -976,9 +976,15 @@ def parse_all(file_bytes):
 
     branding   = _agg_branding(df_fb)
     fb_conv    = _agg_conversion(df_fb)
-    sale       = _agg_sale_summary(df_fb, df_shopee)
-    sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep)
     tiktok     = _agg_tiktok(df_tiktok)
+
+    tt_branding_spend = tiktok['total'].get('spend', 0)
+    tt_gmvmax_spend   = (df_tt_gmvmax['Spend_VND'].sum()
+                         if not df_tt_gmvmax.empty and 'Spend_VND' in df_tt_gmvmax.columns else 0)
+    tt_total_spend    = tt_branding_spend + tt_gmvmax_spend
+
+    sale       = _agg_sale_summary(df_fb, df_shopee, tiktok_spend=tt_total_spend)
+    sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep)
 
     # Shopee campaign list — each row is one ad/campaign
     shopee_campaigns = []
@@ -1029,7 +1035,7 @@ def parse_all(file_bytes):
             'total_current': sale['total'],
             'total_prev':    sale_prev.get('total', {}),
             'date_range':    '',
-            'overall':       _build_overall_table(plan, sale, branding, fb_conv, tiktok),
+            'overall':       _build_overall_table(plan, sale, branding, fb_conv, tiktok, gmvmax_spend=tt_gmvmax_spend),
         },
         'branding':   branding,
         'conversion': {
@@ -1051,7 +1057,7 @@ def parse_all(file_bytes):
     }
 
 
-def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None):
+def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None, gmvmax_spend=0):
     """Build plan vs actual rows for Overview tab."""
     rows = []
     ch_plan = plan.get('channels', {})
@@ -1081,7 +1087,7 @@ def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None):
             kpi_plan     = p.get('kpi', 0)
             roas_actual  = shopee_sale.get('roas', 0)
         elif label == 'TikTok':
-            actual_spend = tiktok_total.get('spend', 0)
+            actual_spend = tiktok_total.get('spend', 0) + gmvmax_spend
             actual_kpi   = tiktok_total.get('video_views', tiktok_total.get('impressions', 0))
             kpi_plan     = p.get('kpi', 0)
             roas_actual  = 0

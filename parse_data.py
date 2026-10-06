@@ -1163,11 +1163,14 @@ def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None, gmvmax_spen
             kpi_plan     = p.get('kpi', 0)
             roas_actual  = 0
 
+        budget_plan = p.get('budget', 0)
+        if budget_plan == 0 and actual_spend == 0:
+            continue
         rows.append({
             'channel':        label,
-            'budget_plan':    p.get('budget', 0),
+            'budget_plan':    budget_plan,
             'budget_actual':  actual_spend,
-            'budget_pct':     actual_spend / p.get('budget', 1) if p.get('budget') else 0,
+            'budget_pct':     actual_spend / budget_plan if budget_plan else 0,
             'kpi_plan':       kpi_plan,
             'kpi_actual':     actual_kpi,
             'kpi_pct':        actual_kpi / kpi_plan if kpi_plan > 0 else 0,

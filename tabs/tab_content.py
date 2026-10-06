@@ -85,11 +85,11 @@ def render(data):
     aligns  = ['center', 'left', 'center', 'center', 'center'] + ['right'] * 3
 
     if is_conv:
-        headers += ['ATC', 'Purchases', 'GMV', 'ROAS']
-        aligns  += ['right', 'right', 'right', 'center']
+        headers += ['ATC', 'Purchases', 'GMV', 'ROAS', 'Cost/Purchase']
+        aligns  += ['right', 'right', 'right', 'center', 'right']
     else:
-        headers += ['Results', 'VTR']
-        aligns  += ['right', 'right']
+        headers += ['Results', 'Cost/Result', 'VTR']
+        aligns  += ['right', 'right', 'right']
 
     rows = []
     for i, (_, row) in enumerate(agg.head(50).iterrows(), 1):
@@ -100,7 +100,10 @@ def render(data):
         status   = str(row.get('Status', ''))
         s_color  = C['green'] if 'active' in status.lower() else '#64748B'
 
-        vtr = row.get('ThruPlays', 0) / row.get('Impressions', 1) * 100 if row.get('Impressions', 0) else 0
+        spend   = row.get('Spend', 0)
+        vtr     = row.get('ThruPlays', 0) / row.get('Impressions', 1) * 100 if row.get('Impressions', 0) else 0
+        results = row.get('Results', 0)
+        cpr     = spend / results if results > 0 else 0
 
         base = [
             f'<span style="color:#64748B">{i}</span>',
@@ -108,20 +111,24 @@ def render(data):
             f'<span style="color:{b_color};font-size:11px;font-weight:600">{brand}</span>',
             str(row.get('Format', '—')),
             f'<span style="color:{s_color};font-size:11px">{status}</span>',
-            fmt_vnd(row.get('Spend', 0)),
+            fmt_vnd(spend),
             fmt_num(row.get('Impressions', 0)),
             f'{row.get("CTR_calc", 0):.2f}%',
         ]
         if is_conv:
+            purchases = row.get('Purchases', 0)
+            cpp = spend / purchases if purchases > 0 else 0
             base += [
                 fmt_num(row.get('ATC', 0)),
-                fmt_num(row.get('Purchases', 0)),
+                fmt_num(purchases),
                 fmt_vnd(row.get('Revenue', 0)),
                 roas_badge(row.get('ROAS_calc', 0)),
+                fmt_vnd(cpp),
             ]
         else:
             base += [
-                fmt_num(row.get('Results', 0)),
+                fmt_num(results),
+                fmt_vnd(cpr),
                 f'{vtr:.1f}%',
             ]
         rows.append(base)

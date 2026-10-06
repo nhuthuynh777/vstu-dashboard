@@ -10,7 +10,7 @@ BRANDS = [
     'WEARETHEPRIVATE', 'TRAPPER CLUB', 'FVNXYTHINGS', 'IAMSAIGON',
     'AFTERPARTY', 'FLORALPUNK', 'DEARJOSÉ', 'DEARJOSE', 'BLACKDRP',
     'BLACKORP', 'HIGHCHIC', 'PARADOX', 'MOIDIEN', 'MOIDEN', 'CAOSTU',
-    'KANTAN', 'FNOS', 'QEM',
+    'KANTAN', 'FNOS', 'QEM', 'ARYA', 'OWL',
 ]
 
 _PREV_KEYWORDS = ('prev', ' pre', 'apr', 'may', 'old', 'last', 'trước', 'truoc', 'march', 'mar',

@@ -45,6 +45,7 @@ def classify_campaign(campaign_name):
     c = str(campaign_name).lower()
     if 'retarget' in c:                          return 'Retargeting'
     if 'catalogsale' in c or 'catalog' in c:     return 'Catalog Sale'
+    if 'message' in c:                           return 'Messenger'
     if 'reach' in c:                             return 'Reach'
     if 'engagement' in c or 'engag' in c:        return 'Engagement'
     if 'visit profile' in c or 'profile' in c:   return 'Profile Visit'
@@ -809,6 +810,50 @@ def _agg_conversion(df_fb):
     return result
 
 
+def _agg_messenger(df_fb):
+    """Aggregate FB Messenger (Messages objective) campaign metrics."""
+    if df_fb.empty or 'Camp Type' not in df_fb.columns:
+        return {}
+    sub = df_fb[df_fb['Camp Type'] == 'Messenger']
+    if sub.empty:
+        return {}
+    spend       = sub['Spend'].sum()       if 'Spend'       in sub.columns else 0
+    results     = sub['Results'].sum()     if 'Results'     in sub.columns else 0
+    impressions = sub['Impressions'].sum() if 'Impressions' in sub.columns else 0
+    reach       = sub['Reach'].sum()       if 'Reach'       in sub.columns else 0
+    clicks      = sub['Clicks'].sum()      if 'Clicks'      in sub.columns else 0
+    ctr         = float(sub['CTR'].mean()) if 'CTR'         in sub.columns and len(sub) else 0
+    # Brand breakdown
+    brand_rows = []
+    if 'Brand' in sub.columns:
+        agg_cols = {c: 'sum' for c in ['Spend', 'Impressions', 'Reach', 'Results', 'Clicks']
+                    if c in sub.columns}
+        brand_agg = sub.groupby('Brand').agg(agg_cols).reset_index()
+        brand_agg = brand_agg.sort_values('Results', ascending=False)
+        for _, row in brand_agg.iterrows():
+            s = row.get('Spend', 0)
+            r = row.get('Results', 0)
+            brand_rows.append({
+                'brand':       row['Brand'],
+                'spend':       s,
+                'conversations': r,
+                'cpr':         s / r if r > 0 else 0,
+                'impressions': row.get('Impressions', 0),
+                'reach':       row.get('Reach', 0),
+                'clicks':      row.get('Clicks', 0),
+            })
+    return {
+        'spend':         spend,
+        'conversations': results,
+        'cpr':           spend / results if results > 0 else 0,
+        'impressions':   impressions,
+        'reach':         reach,
+        'clicks':        clicks,
+        'ctr':           ctr,
+        'by_brand':      brand_rows,
+    }
+
+
 def _agg_shopee_overall(df):
     if df.empty:
         return {'spend': 0, 'orders': 0, 'gmv': 0, 'roas': 0, 'clicks': 0, 'impressions': 0}
@@ -975,6 +1020,7 @@ def parse_all(file_bytes):
 
     branding   = _agg_branding(df_fb)
     fb_conv    = _agg_conversion(df_fb)
+    messenger  = _agg_messenger(df_fb)
     tiktok     = _agg_tiktok(df_tiktok)
 
     tt_branding_spend = tiktok['total'].get('spend', 0)
@@ -1042,6 +1088,7 @@ def parse_all(file_bytes):
         'branding':   branding,
         'conversion': {
             'fb':              fb_conv,
+            'messenger':       messenger,
             'shopee_overall':  _agg_shopee_overall(df_shopee),
             'mom':             mom_funnel,
             'shopee_campaigns':    shopee_campaigns,

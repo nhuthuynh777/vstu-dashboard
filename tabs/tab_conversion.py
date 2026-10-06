@@ -195,14 +195,50 @@ def render(data):
             st.caption('Ads không có brand tag — phân loại theo promotion name từ ad name')
             _conv_table(df_promo, 'Promotion', 'Promotion') if 'Promotion' in df_promo.columns else None
 
+    # ── Messenger ─────────────────────────────────────────────────────────────
+    msn = cv.get('messenger', {})
+    if msn:
+        st.markdown("---")
+        section('Messenger (Messages Campaigns)', 'green')
+
+        kpi_grid(
+            kpi_html('Messenger Spend',     fmt_vnd(msn.get('spend', 0)),         '—', 'accent'),
+            kpi_html('Conversations',       fmt_num(msn.get('conversations', 0)), '—', 'green'),
+            kpi_html('Cost / Conversation', fmt_vnd(msn.get('cpr', 0)),           '—', 'yellow'),
+            kpi_html('Impressions',         fmt_num(msn.get('impressions', 0)),   '—', 'blue'),
+            kpi_html('Reach',               fmt_num(msn.get('reach', 0)),         '—', 'purple'),
+            cols=5,
+        )
+
+        by_brand = msn.get('by_brand', [])
+        if by_brand:
+            st.markdown('<div style="margin-top:16px"></div>', unsafe_allow_html=True)
+            headers = ['Brand', 'Spend', 'Conversations', 'Cost/Conv', 'Impressions', 'Reach', 'Clicks']
+            aligns  = ['left'] + ['right'] * 6
+            rows_out = []
+            for b in by_brand:
+                rows_out.append([
+                    b['brand'],
+                    fmt_vnd(b['spend']),
+                    fmt_num(b['conversations']),
+                    fmt_vnd(b['cpr']),
+                    fmt_num(b['impressions']),
+                    fmt_num(b['reach']),
+                    fmt_num(b['clicks']),
+                ])
+            html_table(headers, rows_out, aligns)
+
     st.markdown("---")
-    editable_insight('conversion', _auto_insight(cat, ret, tot, total_roas), 'blue')
+    editable_insight('conversion', _auto_insight(cat, ret, tot, total_roas, msn), 'blue')
 
 
-def _auto_insight(cat, ret, tot, roas):
+def _auto_insight(cat, ret, tot, roas, msn=None):
     lines = [
         f"FB Conversion: spend {fmt_vnd(tot.get('spend',0))} | {fmt_num(tot.get('purchases',0))} purchases | ROAS {roas:.2f}x",
         f"Prospecting: {fmt_num(cat.get('purchases',0))} pur | GMV {fmt_vnd(cat.get('gmv',0))}" if cat.get('spend') else '',
         f"Retargeting: {fmt_num(ret.get('purchases',0))} pur | GMV {fmt_vnd(ret.get('gmv',0))}" if ret.get('spend') else '',
+        (f"Messenger: spend {fmt_vnd(msn.get('spend',0))} | "
+         f"{fmt_num(msn.get('conversations',0))} conversations | "
+         f"CPR {fmt_vnd(msn.get('cpr',0))}") if msn and msn.get('spend') else '',
     ]
     return '\n'.join(l for l in lines if l)

@@ -210,6 +210,7 @@ def parse_media_plan(wb, sheet_name):
             if 'instagram' in ch or ch.strip() == 'ig':
                 if 'reach'      in fmt: return 'IG Reach'
                 if 'engagement' in fmt: return 'IG Engagement'
+                if 'messenger' in fmt or 'message' in fmt: return 'FB Messenger'
             if 'facebook' in ch or ch.strip() == 'fb':
                 if 'profile visit'  in fmt: return 'FB Profile Visit'
                 if 'catalog'        in fmt: return 'FB Catalog Sale'

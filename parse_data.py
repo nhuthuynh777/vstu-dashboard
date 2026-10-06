@@ -214,11 +214,13 @@ def parse_media_plan(wb, sheet_name):
                 if 'profile visit'  in fmt: return 'FB Profile Visit'
                 if 'catalog'        in fmt: return 'FB Catalog Sale'
                 if 'retargeting'    in fmt or 'dymanic' in fmt: return 'FB Retargeting'
+                if 'messenger' in fmt or 'message' in fmt: return 'FB Messenger'
             # No channel name on row — infer from format only (sub-rows)
             if not ch:
                 if 'engagement'  in fmt: return 'IG Engagement'
                 if 'profile visit' in fmt: return 'FB Profile Visit'
                 if 'retargeting' in fmt or 'dymanic' in fmt: return 'FB Retargeting'
+                if 'messenger' in fmt or 'message' in fmt: return 'FB Messenger'
                 if 'video'       in fmt: return 'TikTok'
             return None
 
@@ -1083,7 +1085,7 @@ def parse_all(file_bytes):
             'total_current': sale['total'],
             'total_prev':    sale_prev.get('total', {}),
             'date_range':    '',
-            'overall':       _build_overall_table(plan, sale, branding, fb_conv, tiktok, gmvmax_spend=tt_gmvmax_spend),
+            'overall':       _build_overall_table(plan, sale, branding, fb_conv, tiktok, gmvmax_spend=tt_gmvmax_spend, messenger=messenger),
         },
         'branding':   branding,
         'conversion': {
@@ -1106,17 +1108,19 @@ def parse_all(file_bytes):
     }
 
 
-def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None, gmvmax_spend=0):
+def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None, gmvmax_spend=0, messenger=None):
     """Build plan vs actual rows for Overview tab."""
     rows = []
     ch_plan = plan.get('channels', {})
     br_sum  = {s['type']: s for s in branding.get('summary', [])}
     fb_dict = {f['type']: f for f in fb_conv}
+    msg     = messenger or {}
 
     mapping = [
         ('FB Reach',        'IG Reach',         br_sum.get('Reach', {}),         None),
         ('IG Engagement',   'IG Engagement',     br_sum.get('Engagement', {}),    None),
         ('FB Profile Visit','FB Profile Visit',  br_sum.get('Profile Visit', {}), None),
+        ('FB Messenger',    'FB Messenger',      msg,                             None),
         ('FB Catalog Sale', 'FB Catalog Sale',   fb_dict.get('Catalog Sale', {}), fb_dict.get('Catalog Sale', {})),
         ('FB Retargeting',  'FB Retargeting',    fb_dict.get('Retargeting', {}),  fb_dict.get('Retargeting', {})),
         ('Shopee GMV Max',  'Shopee GMV Max',    {}, None),
@@ -1138,6 +1142,11 @@ def _build_overall_table(plan, sale, branding, fb_conv, tiktok=None, gmvmax_spen
         elif label == 'TikTok':
             actual_spend = tiktok_total.get('spend', 0) + gmvmax_spend
             actual_kpi   = tiktok_total.get('video_views', tiktok_total.get('impressions', 0))
+            kpi_plan     = p.get('kpi', 0)
+            roas_actual  = 0
+        elif label == 'FB Messenger':
+            actual_spend = actual_data.get('spend', 0)
+            actual_kpi   = actual_data.get('conversations', 0)
             kpi_plan     = p.get('kpi', 0)
             roas_actual  = 0
         elif label in ('FB Catalog Sale', 'FB Retargeting'):

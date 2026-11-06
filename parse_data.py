@@ -928,6 +928,14 @@ def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0, tiktok_gmv=0):
         'orders': shopee_orders, 'gmv': shopee_gmv,
     })
 
+    if tiktok_spend > 0 or tiktok_gmv > 0:
+        result['channels'].append({
+            'channel': 'TikTok',
+            'spend':   tiktok_spend,
+            'orders':  0,
+            'gmv':     tiktok_gmv,
+        })
+
     for ch in result['channels']:
         ch['roas'] = ch['gmv'] / ch['spend'] if ch['spend'] > 0 else 0
 
@@ -935,8 +943,8 @@ def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0, tiktok_gmv=0):
     fb_all_spend = df_fb['Spend'].sum() if not df_fb.empty and 'Spend' in df_fb.columns else 0
     spend_all    = fb_all_spend + shopee_spend + tiktok_spend
 
-    # total_gmv = FB conversion GMV + Shopee GMV + TikTok GMV Max
-    total_gmv = sum(c['gmv'] for c in result['channels']) + tiktok_gmv
+    # total_gmv = sum of all channels (TikTok already included in channels)
+    total_gmv = sum(c['gmv'] for c in result['channels'])
 
     result['total'] = {
         'spend':     sum(c['spend'] for c in result['channels']),
@@ -948,9 +956,9 @@ def _agg_sale_summary(df_fb, df_shopeeamp, tiktok_spend=0, tiktok_gmv=0):
     return result
 
 
-def _mom_from_raw(df_fb_prev, df_shopee_prev):
+def _mom_from_raw(df_fb_prev, df_shopee_prev, tiktok_spend=0, tiktok_gmv=0):
     """Compute previous period totals for MoM comparison."""
-    if df_fb_prev.empty and df_shopee_prev.empty:
+    if df_fb_prev.empty and df_shopee_prev.empty and tiktok_spend == 0 and tiktok_gmv == 0:
         return {}
 
     fb_conv = df_fb_prev[df_fb_prev['Camp Type'].isin(['Catalog Sale', 'Retargeting'])] \
@@ -970,21 +978,23 @@ def _mom_from_raw(df_fb_prev, df_shopee_prev):
     gm = df_shopee_prev['gmv'].sum()    if not df_shopee_prev.empty and 'gmv'    in df_shopee_prev.columns else 0
     channels.append({'channel': 'Shopee', 'spend': sp, 'orders': or_, 'gmv': gm})
 
+    if tiktok_spend > 0 or tiktok_gmv > 0:
+        channels.append({'channel': 'TikTok', 'spend': tiktok_spend, 'orders': 0, 'gmv': tiktok_gmv})
+
     for ch in channels:
         ch['roas'] = ch['gmv'] / ch['spend'] if ch['spend'] > 0 else 0
 
-    conv_spend = sum(c['spend'] for c in channels)
     total_gmv  = sum(c['gmv']   for c in channels)
 
     fb_all_spend_prev = df_fb_prev['Spend'].sum() if not df_fb_prev.empty and 'Spend' in df_fb_prev.columns else 0
-    spend_all_prev    = fb_all_spend_prev + sp
+    spend_all_prev    = fb_all_spend_prev + sp + tiktok_spend
 
     total = {
-        'spend':     conv_spend,
+        'spend':     sum(c['spend'] for c in channels),
         'spend_all': spend_all_prev,
         'orders':    sum(c['orders'] for c in channels),
         'gmv':       total_gmv,
-        'roas':      total_gmv / conv_spend if conv_spend > 0 else 0,
+        'roas':      total_gmv / spend_all_prev if spend_all_prev > 0 else 0,
     }
     return {'channels': channels, 'total': total}
 
@@ -1035,7 +1045,11 @@ def parse_all(file_bytes):
 
     sale       = _agg_sale_summary(df_fb, df_shopee,
                                    tiktok_spend=tt_total_spend, tiktok_gmv=tt_gmvmax_gmv)
-    sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep)
+
+    tt_prev_spend = (df_tiktok_prev['Spend'].sum()
+                     if not df_tiktok_prev.empty and 'Spend' in df_tiktok_prev.columns else 0)
+    sale_prev  = _mom_from_raw(df_fb_prev, df_shopeep,
+                               tiktok_spend=tt_prev_spend, tiktok_gmv=0)
 
     # Shopee campaign list — each row is one ad/campaign
     shopee_campaigns = []
